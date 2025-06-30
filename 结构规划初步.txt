@@ -1,0 +1,17 @@
+health-advisor/
+ index.html                  # 主页面
+assets/                     # 资源文件夹
+ css/
+ styles.css          # 主样式文件
+ js/
+ main.js             # JavaScript功能
+ images/                 # 图片资源
+ data/                       # 数据文件夹
+ health_categories.json  # 健康分类数据
+ supplements.json        # 补剂数据
+ symptom_mapping.json    # 症状映射数据
+pages/                      # 其他页面
+ self-check.html         # 自查页面
+supplement.html         # 补剂详情页
+ disclaimer.html         # 免责声明页
+ README.md                   # 项目说明文档
