@@ -1,1 +1,6 @@
-
+{
+  "attr-quotes": true,       // 属性必须用引号
+  "tag-pair": true,          // 标签必须闭合
+  "doctype-first": true,     // DOCTYPE 必须在第一行
+  "spec-char-escape": true   // 特殊字符需转义
+}
