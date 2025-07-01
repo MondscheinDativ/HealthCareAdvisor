@@ -1,1 +1,6 @@
-
+{
+  "semi": true,        // 强制分号
+  "singleQuote": true, // 单引号
+  "trailingComma": "all", // 对象/数组末尾逗号
+  "printWidth": 100    // 每行最大长度
+}
