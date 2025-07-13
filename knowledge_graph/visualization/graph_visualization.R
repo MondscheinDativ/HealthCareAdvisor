@@ -1,34 +1,66 @@
 library(visNetwork)
-library(igraph)
+library(neo4r)
+library(dplyr)
 
-visualize_core_graph <- function(supplement_focus = "NMN") {
-  # 从Neo4j获取核心关系
+visualize_core_graph <- function(focus_supplement = "维生素D3", depth = 2) {
+  con <- neo4j_api$new(
+    url = "bolt://localhost:7687", 
+    user = Sys.getenv("NEO4J_USER"), 
+    password = Sys.getenv("NEO4J_PASS")
+  )
+  
   query <- paste0("
-    MATCH (s:Supplement {id: '", supplement_focus, "'})-[r]-(related)
-    RETURN s, r, related
-    LIMIT 50
+    MATCH path = (s:Supplement {id: '", focus_supplement, "'})-[*..", depth, "]-(related)
+    WITH nodes(path) AS nodes, relationships(path) AS rels
+    UNWIND nodes AS node
+    UNWIND rels AS rel
+    RETURN 
+      COLLECT(DISTINCT node) AS nodes, 
+      COLLECT(DISTINCT {
+        source: startNode(rel).id, 
+        target: endNode(rel).id,
+        type: type(rel)
+      }) AS relationships
   ")
   
-  graph_data <- call_neo4j(query, con, type = "graph")
+  result <- call_neo4j(query, con, type = "graph")
   
-  # 转换为visNetwork格式
-  nodes <- graph_data$nodes %>%
+  if(length(result$nodes) == 0) {
+    message("No results found for: ", focus_supplement)
+    return(NULL)
+  }
+  
+  # 准备节点数据
+  nodes_df <- bind_rows(result$nodes) %>%
     mutate(
-      label = coalesce(properties$name, properties$id),
-      group = ifelse(label == supplement_focus, "Focus", label_type)
+      label = coalesce(properties$label, properties$id),
+      group = ifelse(id == focus_supplement, "Focus", label),
+      value = ifelse(group == "Focus", 30, 10),
+      title = paste0("<b>", label, "</b><br>Type: ", label)
+    ) %>%
+    distinct(id, .keep_all = TRUE)
+  
+  # 准备关系数据
+  edges_df <- bind_rows(result$relationships) %>%
+    mutate(
+      title = type,
+      dashes = ifelse(type == "RESEARCHED_IN", TRUE, FALSE)
     )
   
-  edges <- graph_data$relationships %>%
-    mutate(
-      from = startNode,
-      to = endNode,
-      label = type
-    )
+  # 创建可视化
+  visNetwork(nodes_df, edges_df) %>%
+    visNodes(shape = "dot") %>%
+    visEdges(arrows = "to") %>%
+    visOptions(
+      highlightNearest = list(enabled = TRUE, degree = 2),
+      nodesIdSelection = TRUE
+    ) %>%
+    visLayout(randomSeed = 123) %>%
+    visPhysics(
+      stabilization = list(iterations = 100),
+      repulsion = list(nodeDistance = 300)
+    ) %>%
+    visSave(file = paste0(focus_supplement, "_knowledge_graph.html"))
   
-  # 生成可视化
-  visNetwork(nodes, edges) %>%
-    visGroups(groupname = "Focus", color = "#FF0000") %>%
-    visLegend() %>%
-    visPhysics(stabilization = FALSE) %>%
-    visSave(file = "core_knowledge_graph.html")
+  return(nodes_df)
 }
