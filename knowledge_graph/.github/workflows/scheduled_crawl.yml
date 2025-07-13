@@ -1,0 +1,53 @@
+name: Knowledge Graph Weekly Update
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # 每周日UTC午夜运行 (北京时间周一8:00)
+  workflow_dispatch:     # 允许手动触发
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # 设置超时时间
+    
+    defaults:
+      run:
+        working-directory: knowledge_graph  # 所有命令在此目录执行
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        
+    - name: Create data directories
+      run: |
+        mkdir -p data/raw/clinical_trials
+        mkdir -p data/raw/pubmed
+        
+    - name: Run ClinicalTrials.gov crawler
+      run: python crawlers/clinical_trials_gov.py
+      
+    - name: Run PubMed crawler
+      run: python crawlers/pubmed_crawler.py
+      
+    - name: Commit and push changes
+      run: |
+        git config --global user.name 'GitHub Actions Bot'
+        git config --global user.email 'actions@users.noreply.github.com'
+        git add data/raw/*
+        
+        # 检查是否有文件变化
+        if git diff-index --quiet HEAD --; then
+          echo "No changes to commit"
+        else
+          git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
+          git push
+        fi
