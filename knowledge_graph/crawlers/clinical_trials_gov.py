@@ -51,7 +51,9 @@ def parse_study(study):
 
 def main():
     supplements = load_supplements()
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # 修改路径计算方式
+    base_dir = os.path.dirname(os.path.abspath(__file__))  # 当前脚本目录
+    base_dir = os.path.dirname(base_dir)  # 上移一级到knowledge_graph
     output_dir = os.path.join(base_dir, 'data', 'raw', 'clinical_trials')
     os.makedirs(output_dir, exist_ok=True)
     
