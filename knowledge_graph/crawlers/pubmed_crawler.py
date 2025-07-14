@@ -2,12 +2,15 @@ import requests
 import csv
 import os
 import time
-from configparser import ConfigParser
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 
+# 修复路径
 def load_supplements():
-    with open('../config/supplements.txt', 'r') as f:
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(base_dir, 'config', 'supplements.txt')
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
         return [line.strip() for line in f.readlines() if line.strip()]
 
 def fetch_pubmed(supplement):
@@ -43,16 +46,24 @@ def fetch_pubmed(supplement):
         
         articles = []
         for article in soup.find_all('PubmedArticle'):
-            title = article.find('ArticleTitle').text if article.find('ArticleTitle') else "No Title"
+            title = article.find('ArticleTitle')
+            title = title.text if title else "No Title"
+            
             abstract = article.find('AbstractText')
             abstract = abstract.text if abstract else "No Abstract"
+            
+            journal = article.find('Title')
+            journal = journal.text if journal else "Unknown Journal"
+            
+            pub_date = article.find('PubDate')
+            pub_date = pub_date.text if pub_date else "Unknown Date"
             
             articles.append({
                 "pmid": article.find('PMID').text,
                 "title": title,
                 "abstract": abstract[:500] + "..." if len(abstract) > 500 else abstract,
-                "journal": article.find('Title').text if article.find('Title') else "Unknown Journal",
-                "pub_date": article.find('PubDate').text if article.find('PubDate') else "Unknown Date"
+                "journal": journal,
+                "pub_date": pub_date
             })
         
         return supplement, articles
@@ -62,14 +73,17 @@ def fetch_pubmed(supplement):
 
 def main():
     supplements = load_supplements()
-    os.makedirs("../data/raw/pubmed", exist_ok=True)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    output_dir = os.path.join(base_dir, 'data', 'raw', 'pubmed')
+    os.makedirs(output_dir, exist_ok=True)
     
     with ThreadPoolExecutor(max_workers=5) as executor:
         results = executor.map(fetch_pubmed, supplements)
         
         for supplement, articles in results:
             if articles:
-                with open(f"../data/raw/pubmed/{supplement}.csv", "w", newline='', encoding='utf-8') as f:
+                output_path = os.path.join(output_dir, f"{supplement}.csv")
+                with open(output_path, "w", newline='', encoding='utf-8') as f:
                     writer = csv.DictWriter(f, fieldnames=articles[0].keys())
                     writer.writeheader()
                     writer.writerows(articles)
