@@ -34,7 +34,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     # 修改文件保存路径
-    for supplement in SUPPLEMENTS:
+    for supplement in supplements:
         data = get_supplement_details(supplement)
         output_path = os.path.join(output_dir, f"{supplement}.csv")  # 使用新路径
 
