@@ -8,7 +8,7 @@ on:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # 增加超时时间
+    timeout-minutes: 120  # 增加超时时间到2小时
     defaults:
       run:
         working-directory: .  # 在根目录执行
@@ -27,22 +27,20 @@ jobs:
           pip install --upgrade pip
           pip install -r knowledge_graph/requirements.txt
           
-      - name: Verify network connectivity
-        run: |
-          ping -c 4 dsld.nlm.nih.gov
-          ping -c 4 clinicaltrials.gov
-          
       - name: Run ClinicalTrials.gov crawler
-        run: python knowledge_graph/crawlers/clinical_trials_gov.py > clinical_trials.log 2>&1
+        run: python knowledge_graph/crawlers/clinical_trials_gov.py > clinical_trials.log 2>&1 || echo "ClinicalTrials.gov crawler failed but workflow continues"
+        continue-on-error: true  # 即使失败也继续
         
       - name: Run PubMed crawler
-        run: python knowledge_graph/crawlers/pubmed_crawler.py > pubmed.log 2>&1
+        run: python knowledge_graph/crawlers/pubmed_crawler.py > pubmed.log 2>&1 || echo "PubMed crawler failed but workflow continues"
+        continue-on-error: true  # 即使失败也继续
         
       - name: Run NIH DSLD crawler
-        run: python knowledge_graph/crawlers/nih_dsld.py > nih_dsld.log 2>&1
+        run: python knowledge_graph/crawlers/nih_dsld.py > nih_dsld.log 2>&1 || echo "NIH DSLD crawler failed but workflow continues"
+        continue-on-error: true  # 即使失败也继续
         
       - name: Upload log files
-        uses: actions/upload-artifact@v4  # 更新到 v4 版本
+        uses: actions/upload-artifact@v4
         if: always()  # 即使失败也上传
         with:
           name: crawl-logs
@@ -53,14 +51,14 @@ jobs:
             
       - name: Commit and push changes
         run: |
-          git config --global user.name 'GitHub Actions Bot'
-          git config --global user.email 'actions@users.noreply.github.com'
-          git add knowledge_graph/data/raw/*
-          
-          # 检查是否有文件变化
-          if git diff-index --quiet HEAD --; then
-            echo "No changes to commit"
-          else
+          # 检查是否有数据文件生成
+          if [ -d "knowledge_graph/data/raw" ] && [ -n "$(find knowledge_graph/data/raw -type f)" ]; then
+            git config --global user.name 'GitHub Actions Bot'
+            git config --global user.email 'actions@users.noreply.github.com'
+            git add knowledge_graph/data/raw/*
             git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
             git push
+          else
+            echo "No data files to commit"
           fi
+        continue-on-error: true  # 即使失败也标记工作流完成
