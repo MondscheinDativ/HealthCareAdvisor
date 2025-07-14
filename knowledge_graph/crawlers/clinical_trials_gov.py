@@ -2,12 +2,15 @@ import requests
 import csv
 import time
 import os
-from configparser import ConfigParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# 读取补剂列表
+# 读取补剂列表 - 修复路径
 def load_supplements():
-    with open('../config/supplements.txt', 'r') as f:
+    # 使用相对于脚本位置的正确路径
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(base_dir, 'config', 'supplements.txt')
+    
+    with open(config_path, 'r', encoding='utf-8') as f:
         return [line.strip() for line in f.readlines() if line.strip()]
 
 def fetch_trials(supplement, retries=3):
@@ -43,12 +46,14 @@ def parse_study(study):
             ]),
             "primary_outcomes": protocol["OutcomesModule"]["PrimaryOutcomeList"]["PrimaryOutcome"][0]["PrimaryOutcomeMeasure"]
         }
-    except KeyError:
+    except (KeyError, TypeError):
         return None
 
 def main():
     supplements = load_supplements()
-    os.makedirs("../data/raw/clinical_trials", exist_ok=True)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    output_dir = os.path.join(base_dir, 'data', 'raw', 'clinical_trials')
+    os.makedirs(output_dir, exist_ok=True)
     
     with ThreadPoolExecutor(max_workers=5) as executor:
         future_to_supp = {
@@ -68,7 +73,8 @@ def main():
                 valid_studies = [s for s in valid_studies if s]
                 
                 if valid_studies:
-                    with open(f"../data/raw/clinical_trials/{supplement}.csv", "w", newline='', encoding='utf-8') as f:
+                    output_path = os.path.join(output_dir, f"{supplement}.csv")
+                    with open(output_path, "w", newline='', encoding='utf-8') as f:
                         writer = csv.DictWriter(f, fieldnames=valid_studies[0].keys())
                         writer.writeheader()
                         writer.writerows(valid_studies)
