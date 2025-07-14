@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # 读取补剂列表 - 修复路径
 def load_supplements():
     # 使用相对于脚本位置的正确路径
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(base_dir, 'config', 'supplements.txt')
     
     with open(config_path, 'r', encoding='utf-8') as f:
