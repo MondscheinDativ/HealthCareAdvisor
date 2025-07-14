@@ -28,10 +28,11 @@ jobs:
         pip install --upgrade pip
         pip install -r requirements.txt
         
-    - name: Create data directories
+    - name: Verify directory structure
       run: |
-        mkdir -p data/raw/clinical_trials
-        mkdir -p data/raw/pubmed
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -lR .
         
     - name: Run ClinicalTrials.gov crawler
       run: python crawlers/clinical_trials_gov.py
