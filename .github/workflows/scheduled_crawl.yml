@@ -8,10 +8,10 @@ on:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # 设置超时时间
+    timeout-minutes: 90  # 增加超时时间
     defaults:
       run:
-        working-directory: .  # 修改为根目录
+        working-directory: .  # 在根目录执行
 
     steps:
       - name: Checkout repository
@@ -27,27 +27,36 @@ jobs:
           pip install --upgrade pip
           pip install -r knowledge_graph/requirements.txt
           
-      - name: Verify directory structure
+      - name: Verify network connectivity
         run: |
-          echo "Current directory: $(pwd)"
-          echo "Directory contents:"
-          ls -lR .
+          ping -c 4 dsld.nlm.nih.gov
+          ping -c 4 clinicaltrials.gov
           
       - name: Run ClinicalTrials.gov crawler
-        run: python knowledge_graph/crawlers/clinical_trials_gov.py
+        run: python knowledge_graph/crawlers/clinical_trials_gov.py > clinical_trials.log 2>&1
         
       - name: Run PubMed crawler
-        run: python knowledge_graph/crawlers/pubmed_crawler.py
+        run: python knowledge_graph/crawlers/pubmed_crawler.py > pubmed.log 2>&1
         
-      # 添加NIH DSLD爬虫
       - name: Run NIH DSLD crawler
-        run: python knowledge_graph/crawlers/nih_dsld.py
+        run: python knowledge_graph/crawlers/nih_dsld.py > nih_dsld.log 2>&1
         
+      - name: Upload log files
+        uses: actions/upload-artifact@v3
+        if: always()  # 即使失败也上传
+        with:
+          name: crawl-logs
+          path: |
+            clinical_trials.log
+            pubmed.log
+            nih_dsld.log
+            
       - name: Commit and push changes
         run: |
           git config --global user.name 'GitHub Actions Bot'
           git config --global user.email 'actions@users.noreply.github.com'
           git add knowledge_graph/data/raw/*
+          
           # 检查是否有文件变化
           if git diff-index --quiet HEAD --; then
             echo "No changes to commit"
