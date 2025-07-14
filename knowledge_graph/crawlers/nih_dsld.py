@@ -26,13 +26,16 @@ def get_supplement_details(supplement_name):
     return details
 
 def main():
-    # 从重点列表获取补剂名称
-    for supplement in SUPPLEMENTS:  
+    # 添加路径处理
+    base_dir = os.path.dirname(os.path.abspath(__file__))  # 当前脚本目录
+    base_dir = os.path.dirname(base_dir)  # 上移一级到knowledge_graph
+    output_dir = os.path.join(base_dir, 'data', 'raw', 'nih_dsld')
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 修改文件保存路径
+    for supplement in SUPPLEMENTS:
         data = get_supplement_details(supplement)
-        with open(f"../data/raw/nih_dsld/{supplement}.csv", "w", newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=data[0].keys())
-            writer.writeheader()
-            writer.writerows(data)
+        output_path = os.path.join(output_dir, f"{supplement}.csv")  # 使用新路径
 
 if __name__ == "__main__":
     main()
