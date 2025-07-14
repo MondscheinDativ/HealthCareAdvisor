@@ -2,10 +2,16 @@ import requests
 import csv
 import os
 import time
+import socket
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import xml.etree.ElementTree as ET
 
-# 读取补剂列表 - 与其他爬虫一致
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# 读取补剂列表
 def load_supplements():
     base_dir = os.path.dirname(os.path.abspath(__file__))  # 当前脚本目录
     base_dir = os.path.dirname(base_dir)  # 上移一级到knowledge_graph
@@ -15,20 +21,36 @@ def load_supplements():
 
 DSLD_API = "https://dsld.nlm.nih.gov/dsld/api"
 
-def get_supplement_details(supplement_name, retries=3):
+def get_supplement_details(supplement_name, retries=5):
     params = {"name": supplement_name, "format": "xml"}
     
     for attempt in range(retries):
         try:
-            response = requests.get(DSLD_API, params=params, timeout=30)
+            # 检查DNS解析
+            socket.getaddrinfo("dsld.nlm.nih.gov", 443)
+            
+            response = requests.get(
+                DSLD_API, 
+                params=params, 
+                timeout=30,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            )
+            
             response.raise_for_status()
             
             # 处理可能的空响应
             if not response.content:
-                print(f"Empty response for {supplement_name}, attempt {attempt+1}")
-                return []
+                logger.warning(f"Empty response for {supplement_name}, attempt {attempt+1}")
+                time.sleep(2 ** attempt)  # 指数退避
+                continue
                 
-            root = ET.fromstring(response.content)
+            try:
+                root = ET.fromstring(response.content)
+            except ET.ParseError as e:
+                logger.error(f"XML parse error for {supplement_name}: {str(e)}")
+                time.sleep(2 ** attempt)  # 指数退避
+                continue
+                
             details = []
             
             for product in root.findall(".//product"):
@@ -56,9 +78,14 @@ def get_supplement_details(supplement_name, retries=3):
                 
             return details
             
+        except (requests.exceptions.RequestException, socket.gaierror) as e:
+            logger.error(f"Attempt {attempt+1} failed for {supplement_name}: {str(e)}")
+            wait_time = min(2 ** attempt, 60)  # 指数退避，最大60秒
+            time.sleep(wait_time)
         except Exception as e:
-            print(f"Attempt {attempt+1} failed for {supplement_name}: {str(e)}")
-            time.sleep(5)
+            logger.error(f"Unexpected error for {supplement_name}: {str(e)}")
+            wait_time = min(2 ** attempt, 60)  # 指数退避，最大60秒
+            time.sleep(wait_time)
     
     return []  # 所有重试失败后返回空列表
 
@@ -71,9 +98,9 @@ def main():
     output_dir = os.path.join(base_dir, 'data', 'raw', 'nih_dsld')
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"Starting NIH DSLD crawl for {len(supplements)} supplements")
+    logger.info(f"Starting NIH DSLD crawl for {len(supplements)} supplements")
     
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:  # 减少并发数
         future_to_supp = {
             executor.submit(get_supplement_details, supp): supp
             for supp in supplements
@@ -89,14 +116,14 @@ def main():
                         writer = csv.DictWriter(f, fieldnames=data[0].keys())
                         writer.writeheader()
                         writer.writerows(data)
-                    print(f"Saved {len(data)} products for {supplement}")
+                    logger.info(f"Saved {len(data)} products for {supplement}")
                 else:
-                    print(f"No data found for {supplement}")
+                    logger.warning(f"No data found for {supplement}")
                 
-                time.sleep(1)  # 遵守API限速
+                time.sleep(1.5)  # 增加API限速时间
                 
             except Exception as e:
-                print(f"Error processing {supplement}: {str(e)}")
+                logger.error(f"Error processing {supplement}: {str(e)}")
 
 if __name__ == "__main__":
     main()
