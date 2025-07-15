@@ -2,14 +2,19 @@ import requests
 import csv
 import os
 import time
+import logging
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor
 
-# 修复路径
+# 设置日志
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 def load_supplements():
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(base_dir, 'config', 'supplements.txt')
-    
+    # 获取项目根目录
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    config_path = os.path.join(base_dir, 'knowledge_graph', 'config', 'supplements.txt')
+    logger.info(f"Loading supplements from: {config_path}")
     with open(config_path, 'r', encoding='utf-8') as f:
         return [line.strip() for line in f.readlines() if line.strip()]
 
@@ -18,20 +23,23 @@ def fetch_pubmed(supplement):
     search_url = f"{base_url}esearch.fcgi"
     fetch_url = f"{base_url}efetch.fcgi"
     
-    # 搜索相关文章
+    # 更健壮的搜索参数
     search_params = {
         "db": "pubmed",
-        "term": f'{supplement}[Title/Abstract] AND ("dietary supplement"[MeSH] OR "dietary supplements"[MeSH])',
+        "term": f'"{supplement}"[Title/Abstract] AND ("dietary supplement"[MeSH] OR "dietary supplements"[MeSH])',
         "retmax": 50,
         "retmode": "json"
     }
     
     try:
-        search_res = requests.get(search_url, params=search_params)
+        search_res = requests.get(search_url, params=search_params, timeout=30)
+        search_res.raise_for_status()
         search_data = search_res.json()
-        id_list = search_data.get("esearchresult", {}).get("idlist", [])
         
+        # 更健壮的结果检查
+        id_list = search_data.get("esearchresult", {}).get("idlist", [])
         if not id_list:
+            logger.warning(f"No articles found for {supplement}")
             return supplement, []
         
         # 获取文章详情
@@ -40,56 +48,73 @@ def fetch_pubmed(supplement):
             "id": ",".join(id_list),
             "retmode": "xml"
         }
+        fetch_res = requests.get(fetch_url, params=fetch_params, timeout=30)
+        fetch_res.raise_for_status()
         
-        fetch_res = requests.get(fetch_url, params=fetch_params)
         soup = BeautifulSoup(fetch_res.content, 'xml')
-        
         articles = []
+        
         for article in soup.find_all('PubmedArticle'):
-            title = article.find('ArticleTitle')
-            title = title.text if title else "No Title"
-            
-            abstract = article.find('AbstractText')
-            abstract = abstract.text if abstract else "No Abstract"
-            
-            journal = article.find('Title')
-            journal = journal.text if journal else "Unknown Journal"
-            
-            pub_date = article.find('PubDate')
-            pub_date = pub_date.text if pub_date else "Unknown Date"
-            
-            articles.append({
-                "pmid": article.find('PMID').text,
-                "title": title,
-                "abstract": abstract[:500] + "..." if len(abstract) > 500 else abstract,
-                "journal": journal,
-                "pub_date": pub_date
-            })
+            try:
+                title = article.find('ArticleTitle')
+                title = title.text if title and title.text else "No Title"
+                
+                abstract = article.find('AbstractText')
+                abstract = abstract.text if abstract and abstract.text else "No Abstract"
+                
+                journal = article.find('Journal')
+                journal_title = journal.find('Title').text if journal and journal.find('Title') else "Unknown Journal"
+                
+                pub_date = article.find('PubDate')
+                year = pub_date.find('Year').text if pub_date and pub_date.find('Year') else "Unknown"
+                month = pub_date.find('Month').text if pub_date and pub_date.find('Month') else ""
+                pub_date_str = f"{year}-{month}" if month else year
+                
+                pmid = article.find('PMID')
+                pmid = pmid.text if pmid else "No PMID"
+                
+                articles.append({
+                    "pmid": pmid,
+                    "title": title,
+                    "abstract": abstract[:500] + "..." if len(abstract) > 500 else abstract,
+                    "journal": journal_title,
+                    "pub_date": pub_date_str
+                })
+            except Exception as e:
+                logger.error(f"Error parsing article for {supplement}: {str(e)}")
+                continue
         
         return supplement, articles
+    
     except Exception as e:
-        print(f"Error for {supplement}: {str(e)}")
+        logger.error(f"Error fetching PubMed data for {supplement}: {str(e)}")
         return supplement, []
 
 def main():
     supplements = load_supplements()
-    # 修改路径计算方式
-    base_dir = os.path.dirname(os.path.abspath(__file__))  # 当前脚本目录
-    base_dir = os.path.dirname(base_dir)  # 上移一级到knowledge_graph
-    output_dir = os.path.join(base_dir, 'data', 'raw', 'pubmed')
+    
+    # 获取项目根目录
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    output_dir = os.path.join(base_dir, 'knowledge_graph', 'data', 'raw', 'pubmed')
     os.makedirs(output_dir, exist_ok=True)
     
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        results = executor.map(fetch_pubmed, supplements)
+    logger.info(f"Starting PubMed crawl for {len(supplements)} supplements")
+    
+    with ThreadPoolExecutor(max_workers=3) as executor:  # 减少并发数
+        results = list(executor.map(fetch_pubmed, supplements))
+    
+    for supplement, articles in results:
+        if articles:
+            output_path = os.path.join(output_dir, f"{supplement}.csv")
+            with open(output_path, "w", newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=articles[0].keys())
+                writer.writeheader()
+                writer.writerows(articles)
+            logger.info(f"Saved {len(articles)} articles for {supplement}")
+        else:
+            logger.warning(f"No articles found for {supplement}")
         
-        for supplement, articles in results:
-            if articles:
-                output_path = os.path.join(output_dir, f"{supplement}.csv")
-                with open(output_path, "w", newline='', encoding='utf-8') as f:
-                    writer = csv.DictWriter(f, fieldnames=articles[0].keys())
-                    writer.writeheader()
-                    writer.writerows(articles)
-            time.sleep(3)  # 遵守API限速
+        time.sleep(3)  # 遵守API限速
 
 if __name__ == "__main__":
     main()
