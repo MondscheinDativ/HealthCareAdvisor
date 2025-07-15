@@ -7,22 +7,82 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
 # 设置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("clinical_trials.log"),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
+# 项目路径工具
+def get_project_root():
+    """获取项目根目录的可靠方法"""
+    if 'GITHUB_WORKSPACE' in os.environ:
+        return os.environ['GITHUB_WORKSPACE']
+    
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(current_dir))
+
 def load_supplements():
-    # 获取项目根目录
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    config_path = os.path.join(base_dir, 'knowledge_graph', 'config', 'supplements.txt')
-    logger.info(f"Loading supplements from: {config_path}")
+    root = get_project_root()
+    config_path = os.path.join(root, 'knowledge_graph', 'config', 'supplements.txt')
+    logger.info(f"加载补剂列表从: {config_path}")
+    
+    if not os.path.exists(config_path):
+        logger.error(f"配置文件不存在: {config_path}")
+        return []
+    
     with open(config_path, 'r', encoding='utf-8') as f:
         return [line.strip() for line in f.readlines() if line.strip()]
 
-def fetch_trials(supplement, retries=3):
-    # 正确编码中文参数
-    encoded_supplement = quote(supplement, encoding='utf-8')
+def safe_api_request(url, params, retries=3, timeout=30):
+    """带重试和错误处理的API请求"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json'
+    }
     
-    # 构建查询表达式
+    for attempt in range(retries):
+        try:
+            response = requests.get(
+                url, 
+                params=params, 
+                headers=headers, 
+                timeout=timeout
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code
+            if status == 404:
+                logger.error(f"404 未找到: {url}")
+                return None
+            elif status == 429:
+                wait = min(2 ** attempt, 60)
+                logger.warning(f"请求过多，等待 {wait} 秒后重试...")
+                time.sleep(wait)
+            else:
+                logger.error(f"HTTP错误 {status}: {str(e)}")
+                wait = min(2 ** attempt, 30)
+                time.sleep(wait)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            logger.error(f"网络错误: {str(e)}")
+            wait = min(2 ** attempt, 30)
+            time.sleep(wait)
+        except Exception as e:
+            logger.error(f"未知错误: {str(e)}")
+            wait = min(2 ** attempt, 30)
+            time.sleep(wait)
+    
+    logger.error(f"请求失败，重试 {retries} 次后放弃")
+    return None
+
+def fetch_trials(supplement):
+    """获取临床试验数据"""
+    encoded_supplement = quote(supplement, encoding='utf-8')
     expr = f'"{encoded_supplement}"[Supplement] AND "dietary supplement"[Intervention]'
     url = "https://clinicaltrials.gov/api/query/full_studies"
     
@@ -33,140 +93,123 @@ def fetch_trials(supplement, retries=3):
         "fmt": "json"
     }
     
-    for attempt in range(retries):
-        try:
-            response = requests.get(
-                url,
-                params=params,
-                timeout=45,  # 增加超时时间
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            n_studies = data.get("FullStudiesResponse", {}).get("NStudiesFound", 0)
-            
-            if n_studies == 0:
-                logger.info(f"No studies found for {supplement}")
-                return supplement, None
-            
-            studies = data.get("FullStudiesResponse", {}).get("FullStudies", [])
-            if not studies:
-                logger.warning(f"API returned no studies for {supplement} despite {n_studies} found")
-                return supplement, None
-            
-            return supplement, data
-        
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                logger.error(f"404 Not Found for {supplement}: {e.response.url}")
-            else:
-                logger.error(f"HTTP error for {supplement}: {str(e)}")
-            wait_time = min(2 ** attempt, 30)
-            time.sleep(wait_time)
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-            logger.error(f"Network error for {supplement}: {str(e)}")
-            wait_time = min(2 ** attempt, 30)
-            time.sleep(wait_time)
-        except Exception as e:
-            logger.error(f"Attempt {attempt+1} failed for {supplement}: {str(e)}")
-            wait_time = min(2 ** attempt, 30)
-            time.sleep(wait_time)
+    response = safe_api_request(url, params, timeout=45)
+    if not response:
+        logger.warning(f"无法获取 {supplement} 的数据")
+        return supplement, None
     
-    return supplement, None
+    try:
+        data = response.json()
+        n_studies = data.get("FullStudiesResponse", {}).get("NStudiesFound", 0)
+        
+        if n_studies == 0:
+            logger.info(f"{supplement} 无相关研究")
+            return supplement, None
+        
+        studies = data.get("FullStudiesResponse", {}).get("FullStudies", [])
+        return supplement, studies
+    except Exception as e:
+        logger.error(f"解析 {supplement} 数据失败: {str(e)}")
+        return supplement, None
 
 def parse_study(study):
+    """解析单个研究数据"""
     try:
         protocol = study["ProtocolSection"]
         id_module = protocol["IdentificationModule"]
         status_module = protocol["StatusModule"]
         
-        # 更健壮的条件提取
+        # 条件
         conditions_module = protocol.get("ConditionsModule", {})
         conditions = conditions_module.get("ConditionList", {}).get("Condition", [])
-        conditions_str = ", ".join(conditions) if conditions else "Not specified"
         
-        # 更健壮的干预措施提取
+        # 干预措施
         interventions = []
         arms_module = protocol.get("ArmsInterventionsModule", {})
         intervention_list = arms_module.get("InterventionList", {}).get("Intervention", [])
         for i in intervention_list:
-            name = i.get("InterventionName", "Unnamed intervention")
-            itype = i.get("InterventionType", "Unknown type")
+            name = i.get("InterventionName", "未命名干预")
+            itype = i.get("InterventionType", "未知类型")
             interventions.append(f"{name} ({itype})")
         
-        # 更健壮的主要结果提取
+        # 主要结果
+        primary_outcome = "未指定"
         outcomes_module = protocol.get("OutcomesModule", {})
-        primary_outcome_list = outcomes_module.get("PrimaryOutcomeList", {}).get("PrimaryOutcome", [])
-        primary_outcome = primary_outcome_list[0]["PrimaryOutcomeMeasure"] if primary_outcome_list else "Not specified"
+        if outcomes_module:
+            primary_outcome_list = outcomes_module.get("PrimaryOutcomeList", {}).get("PrimaryOutcome", [])
+            if primary_outcome_list:
+                primary_outcome = primary_outcome_list[0].get("PrimaryOutcomeMeasure", "未指定")
         
         return {
-            "nct_id": id_module.get("NCTId", "No NCT ID"),
-            "title": id_module.get("OfficialTitle", "No title available"),
-            "status": status_module.get("OverallStatus", "Status unknown"),
-            "conditions": conditions_str,
+            "nct_id": id_module.get("NCTId", "无ID"),
+            "title": id_module.get("OfficialTitle", "无标题"),
+            "status": status_module.get("OverallStatus", "状态未知"),
+            "conditions": "; ".join(conditions),
             "interventions": "; ".join(interventions),
             "primary_outcomes": primary_outcome
         }
-    
-    except (KeyError, TypeError) as e:
-        logger.error(f"Error parsing study: {str(e)}")
-        return None
     except Exception as e:
-        logger.error(f"Unexpected error parsing study: {str(e)}")
+        logger.error(f"解析研究失败: {str(e)}")
         return None
+
+def process_supplement(supplement):
+    """处理单个补剂"""
+    logger.info(f"开始处理: {supplement}")
+    supp, studies = fetch_trials(supplement)
+    
+    if not studies:
+        logger.warning(f"{supplement} 无有效研究")
+        return None
+    
+    valid_studies = []
+    for s in studies:
+        study_data = s.get("Study")
+        if study_data:
+            parsed = parse_study(study_data)
+            if parsed:
+                valid_studies.append(parsed)
+    
+    if not valid_studies:
+        logger.warning(f"{supplement} 无有效研究数据")
+        return None
+    
+    return {
+        "supplement": supplement,
+        "studies": valid_studies
+    }
 
 def main():
     supplements = load_supplements()
+    if not supplements:
+        logger.error("未加载任何补剂，程序终止")
+        return
     
-    # 获取项目根目录
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    output_dir = os.path.join(base_dir, 'knowledge_graph', 'data', 'raw', 'clinical_trials')
+    root = get_project_root()
+    output_dir = os.path.join(root, 'knowledge_graph', 'data', 'raw', 'clinical_trials')
     os.makedirs(output_dir, exist_ok=True)
+    logger.info(f"输出目录: {output_dir}")
     
-    logger.info(f"Starting ClinicalTrials.gov crawl for {len(supplements)} supplements")
+    logger.info(f"开始爬取 {len(supplements)} 种补剂的临床试验数据")
     
-    with ThreadPoolExecutor(max_workers=2) as executor:  # 进一步减少并发数
-        future_to_supp = {
-            executor.submit(fetch_trials, supp): supp
-            for supp in supplements
-        }
-        
-        for future in as_completed(future_to_supp):
-            supplement = future_to_supp[future]
-            try:
-                supp, data = future.result()
-                if not data:
-                    logger.warning(f"No data for {supplement}")
-                    continue
+    # 使用单线程确保稳定性
+    for supplement in supplements:
+        try:
+            result = process_supplement(supplement)
+            if not result:
+                continue
                 
-                studies = data.get("FullStudiesResponse", {}).get("FullStudies", [])
-                if not studies:
-                    logger.warning(f"No studies in response for {supplement}")
-                    continue
-                
-                valid_studies = []
-                for s in studies:
-                    study_data = s.get("Study")
-                    if study_data:
-                        parsed = parse_study(study_data)
-                        if parsed:
-                            valid_studies.append(parsed)
-                
-                if valid_studies:
-                    output_path = os.path.join(output_dir, f"{supplement}.csv")
-                    with open(output_path, "w", newline='', encoding='utf-8') as f:
-                        writer = csv.DictWriter(f, fieldnames=valid_studies[0].keys())
-                        writer.writeheader()
-                        writer.writerows(valid_studies)
-                    logger.info(f"Saved {len(valid_studies)} studies for {supplement}")
-                else:
-                    logger.warning(f"No valid studies for {supplement}")
-                
-                time.sleep(4)  # 增加API限速时间
+            output_path = os.path.join(output_dir, f"{result['supplement']}.csv")
+            with open(output_path, "w", newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=result['studies'][0].keys())
+                writer.writeheader()
+                writer.writerows(result['studies'])
             
-            except Exception as e:
-                logger.error(f"Error processing {supplement}: {str(e)}")
+            logger.info(f"保存 {len(result['studies'])} 项研究: {result['supplement']}")
+            time.sleep(5)  # 严格遵守API限制
+        except Exception as e:
+            logger.error(f"处理 {supplement} 时出错: {str(e)}")
+    
+    logger.info("临床试验数据爬取完成")
 
 if __name__ == "__main__":
     main()
