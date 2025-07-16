@@ -27,16 +27,49 @@ jobs:
           pip install --upgrade pip
           pip install -r knowledge_graph/requirements.txt
           
+      - name: Show current directory
+        run: pwd
+      
+      - name: List directory contents
+        run: ls -la
+      
+      - name: Create raw data directory if not exists
+        run: mkdir -p knowledge_graph/data/raw
+      
       - name: Run ClinicalTrials.gov crawler
-        run: python knowledge_graph/crawlers/clinical_trials_gov.py > clinical_trials.log 2>&1 || echo "ClinicalTrials.gov crawler failed but workflow continues"
+        run: |
+          echo "Starting ClinicalTrials.gov crawler..."
+          python knowledge_graph/crawlers/clinical_trials_gov.py > clinical_trials.log 2>&1
+          echo "Crawler finished. Checking for output files..."
+          if [ -d "knowledge_graph/data/raw" ]; then
+            ls -la knowledge_graph/data/raw
+          else
+            echo "Directory knowledge_graph/data/raw does not exist!"
+          fi
         continue-on-error: true  # 即使失败也继续
         
       - name: Run PubMed crawler
-        run: python knowledge_graph/crawlers/pubmed_crawler.py > pubmed.log 2>&1 || echo "PubMed crawler failed but workflow continues"
+        run: |
+          echo "Starting PubMed crawler..."
+          python knowledge_graph/crawlers/pubmed_crawler.py > pubmed.log 2>&1
+          echo "Crawler finished. Checking for output files..."
+          if [ -d "knowledge_graph/data/raw" ]; then
+            ls -la knowledge_graph/data/raw
+          else
+            echo "Directory knowledge_graph/data/raw does not exist!"
+          fi
         continue-on-error: true  # 即使失败也继续
         
       - name: Run NIH DSLD crawler
-        run: python knowledge_graph/crawlers/nih_dsld.py > nih_dsld.log 2>&1 || echo "NIH DSLD crawler failed but workflow continues"
+        run: |
+          echo "Starting NIH DSLD crawler..."
+          python knowledge_graph/crawlers/nih_dsld.py > nih_dsld.log 2>&1
+          echo "Crawler finished. Checking for output files..."
+          if [ -d "knowledge_graph/data/raw" ]; then
+            ls -la knowledge_graph/data/raw
+          else
+            echo "Directory knowledge_graph/data/raw does not exist!"
+          fi
         continue-on-error: true  # 即使失败也继续
         
       - name: Upload log files
@@ -49,16 +82,27 @@ jobs:
             pubmed.log
             nih_dsld.log
             
+      - name: Upload generated data files
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: generated-data
+          path: knowledge_graph/data/raw/
+          retention-days: 7  # 保留7天
+      
       - name: Commit and push changes
         run: |
           # 检查是否有数据文件生成
           if [ -d "knowledge_graph/data/raw" ] && [ -n "$(find knowledge_graph/data/raw -type f)" ]; then
+            echo "Found data files. Committing and pushing changes..."
             git config --global user.name 'GitHub Actions Bot'
             git config --global user.email 'actions@users.noreply.github.com'
+            git status
             git add knowledge_graph/data/raw/*
             git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
             git push
           else
             echo "No data files to commit"
+            exit 1  # 让这个步骤失败，便于调试
           fi
-        continue-on-error: true  # 即使失败也标记工作流完成
+        continue-on-error: false  # 失败时不继续
