@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HealthSupp - 1.0</title>
+    <style>
+        /* 基础样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+        button {
+            cursor: pointer;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        a {
+            text-decoration: none;
+            color: inherit;
+        }
+        ul {
+            list-style: none;
+        }
+
+        /* 顶部导航 */
+        header {
+            background-color: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .top-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 80px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4A90E2;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background-color: #4A90E2;
+            border-radius: 8px;
+        }
+        .main-nav {
+            display: flex;
+            gap: 30px;
+        }
+        .main-nav a {
+            font-weight: 500;
+            color: #333;
+            position: relative;
+        }
+        .main-nav a:hover {
+            color: #4A90E2;
+        }
+        .category-dropdown {
+            position: relative;
+        }
+        .dropdown-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            width: 280px;
+            padding: 15px;
+            display: none;
+            z-index: 100;
+        }
+        .category-dropdown:hover .dropdown-menu {
+            display: block;
+        }
+        .dropdown-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .dropdown-item:last-child {
+            border-bottom: none;
+        }
+        .dropdown-item strong {
+            color: #4A90E2;
+        }
+        .search-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .search-input {
+            padding: 8px 15px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            width: 200px;
+        }
+        .tech-entry {
+            color: #5CB85C;
+            font-weight: 500;
+        }
+
+        /* 中部核心区 */
+        .hero-section {
+            padding: 40px 0;
+            text-align: center;
+        }
+        .hero-title {
+            font-size: 32px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .hero-subtitle {
+            font-size: 18px;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .hero-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+        .btn-orange {
+            background-color: #F0AD4E;
+            color: white;
+        }
+        .btn-green {
+            background-color: #5CB85C;
+            color: white;
+        }
+
+        .core-section {
+            display: flex;
+            gap: 30px;
+            margin: 40px 0;
+        }
+        .left功能区 {
+            flex: 6;
+        }
+        .right分类区 {
+            flex: 4;
+        }
+        .功能-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+        .功能-title {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #4A90E2;
+        }
+        .symptom-input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .health-data {
+            margin-bottom: 15px;
+        }
+        .category-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .category-card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .category-card h3 {
+            color: #4A90E2;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        .category-supplements {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .category馆-section {
+            margin: 40px 0;
+        }
+        .馆-container {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+        .category馆 {
+            min-width: 200px;
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+        .馆-icon {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 10px;
+            border-radius: 8px;
+            background-color: #f0f0f0;
+        }
+        .馆-name {
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .馆-supplements {
+            font-size: 14px;
+            color: #666;
+        }
+
+        /* 底部技术区 */
+        .tech合作区 {
+            background: white;
+            padding: 30px 0;
+            margin-top: 40px;
+        }
+        .tech-container {
+            display: flex;
+            gap: 30px;
+        }
+        .tech展示 {
+            flex: 6;
+        }
+        .合作模块 {
+            flex: 4;
+        }
+        .tech-title {
+            font-size: 20px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .flowchart {
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .合作-list {
+            margin-bottom: 20px;
+        }
+
+        /* 响应式调整 */
+        @media (max-width: 768px) {
+            .core-section {
+                flex-direction: column;
+            }
+            .tech-container {
+                flex-direction: column;
+            }
+            .main-nav {
+                display: none;
+            }
+            .search-input {
+                width: 150px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航区 -->
+    <header>
+        <div class="container top-nav">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                HealthSupp
+            </div>
+            <nav class="main-nav">
+                <a href="#">首页</a>
+                <a href="#">智能推荐</a>
+                <a href="#">健康档案</a>
+                <div class="category-dropdown">
+                    <a href="#">补剂库 ▼</a>
+                    <div class="dropdown-menu">
+                        <div class="dropdown-item">
+                            <strong>1. 基础营养支持</strong>：复合B族、维生素C、锌、镁（甘氨酸镁）、硒、碘、铁、叶黄素、赖氨酸
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>2. 细胞活力与抗衰</strong>：PQQ、NAD+、NMN、α-硫辛酸、虾青素、白藜芦醇、NAC、花青素
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>3. 情绪平衡与睡眠</strong>：苏糖酸镁、GABA、L-茶氨酸、5-HTP、南非醉茄、人参皂苷
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>4. 骨骼关节健康</strong>：维生素D3、维生素K2、骨胶原蛋白肽、透明质酸钠、软骨素、氨糖
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>5. 运动营养</strong>：甜菜碱、谷氨酰胺、牛磺酸、电解质粉、一水肌酸、瓜拉纳粉
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>6. 皮肤毛发与指甲健康</strong>：复合B族、维生素C、谷胱甘肽、透明质酸钠、水解胶原肽、烟酰胺
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>7. 认知注意力与脑健康</strong>：B12、苏糖酸镁、DHA、L胆碱、磷脂酰丝氨酸、银杏叶提取物
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>8. 代谢健康支持</strong>：α-硫辛酸、左旋肉碱、肌醇、灵芝孢子粉、姜黄素、大蒜素
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>9. 心血管系统健康</strong>：Omega-3、CoQ10、白藜芦醇、红景天、铁剂、西红花、弹性蛋白
+                        </div>
+                        <div class="dropdown-item">
+                            <strong>10. 肝脏健康支持</strong>：NAC、谷胱甘肽、水飞蓟宾
+                        </div>
+                    </div>
+                </div>
+                <a href="#">问答中心</a>
+            </nav>
+            <div class="search-bar">
+                <input type="text" class="search-input" placeholder="搜索补剂/症状...">
+                <a href="#" class="tech-entry">技术实力</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 中部核心区 -->
+    <main class="container">
+        <!-- 上部欢迎区 -->
+        <section class="hero-section">
+            <h1 class="hero-title">从基础营养到精准抗衰，科学补剂方案一站获取</h1>
+            <p class="hero-subtitle">依托多源临床数据与AI技术，覆盖十大健康需求</p>
+            <div class="hero-buttons">
+                <button class="btn-orange">按分类找补剂</button>
+                <button class="btn-green">企业数据合作</button>
+            </div>
+        </section>
+
+        <!-- 中部功能与分类联动区 -->
+        <section class="core-section">
+            <div class="left功能区">
+                <div class="功能-card">
+                    <h2 class="功能-title">智能推荐引擎</h2>
+                    <input type="text" class="symptom-input" placeholder="请输入症状（如：失眠→匹配‘情绪平衡与睡眠’类）">
+                    <div class="health-data">
+                        <label>健康数据：</label>
+                        <select>
+                            <option>年龄</option>
+                            <option>性别</option>
+                            <option>体检指标</option>
+                        </select>
+                    </div>
+                    <button class="btn-orange">生成方案</button>
+                </div>
+
+                <div class="功能-card">
+                    <h2 class="功能-title">成分冲突检测</h2>
+                    <p>选择补剂（可多选）：</p>
+                    <input type="text" class="symptom-input" placeholder="如：5-HTP+南非醉茄">
+                    <button class="btn-green">检测冲突</button>
+                </div>
+            </div>
+
+            <div class="right分类区">
+                <h2 class="功能-title">十大分类速览</h2>
+                <div class="category-cards">
+                    <div class="category-card">
+                        <h3>1. 基础营养支持</h3>
+                        <p class="category-supplements">复合B族、维生素C、锌、镁（甘氨酸镁）、硒、碘、铁、叶黄素、赖氨酸</p>
+                    </div>
+                    <div class="category-card">
+                        <h3>2. 细胞活力与抗衰</h3>
+                        <p class="category-supplements">PQQ、NAD+、NMN、α-硫辛酸、虾青素、白藜芦醇、NAC、花青素</p>
+                    </div>
+                    <div class="category-card">
+                        <h3>3. 情绪平衡与睡眠</h3>
+                        <p class="category-supplements">苏糖酸镁、GABA、L-茶氨酸、5-HTP、南非醉茄、人参皂苷</p>
+                    </div>
+                    <div class="category-card">
+                        <h3>4. 骨骼关节健康</h3>
+                        <p class="category-supplements">维生素D3、维生素K2、骨胶原蛋白肽、透明质酸钠、软骨素、氨糖</p>
+                    </div>
+                    <div class="category-card">
+                        <h3>（点击查看更多分类）</h3>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 下部分类补剂库 -->
+        <section class="category馆-section">
+            <h2 class="功能-title">分类补剂馆</h2>
+            <div class="馆-container">
+                <div class="category馆">
+                    <div class="馆-icon" style="background-color: #E6F4EA;"></div>
+                    <h3 class="馆-name">基础营养支持</h3>
+                    <p class="馆-supplements">复合B族、维生素C、锌...</p>
+                </div>
+                <div class="category馆">
+                    <div class="馆-icon" style="background-color: #F3E9F7;"></div>
+                    <h3 class="馆-name">细胞活力与抗衰</h3>
+                    <p class="馆-supplements">PQQ、NAD+、NMN...</p>
+                </div>
+                <div class="category馆">
+                    <div class="馆-icon" style="background-color: #E6F0F8;"></div>
+                    <h3 class="馆-name">情绪平衡与睡眠</h3>
+                    <p class="馆-supplements">GABA、L-茶氨酸...</p>
+                </div>
+                <div class="category馆">
+                    <div class="馆-icon" style="background-color: #FCE4EC;"></div>
+                    <h3 class="馆-name">骨骼关节健康</h3>
+                    <p class="馆-supplements">维生素D3、氨糖...</p>
+                </div>
+                <div class="category馆">
+                    <div class="馆-icon" style="background-color: #E8F5E9;"></div>
+                    <h3 class="馆-name">运动营养</h3>
+                    <p class="馆-supplements">一水肌酸、牛磺酸...</p>
+                </div>
+                <!-- 其余分类馆省略，结构同上 -->
+            </div>
+        </section>
+    </main>
+
+    <!-- 底部技术与合作区 -->
+    <footer class="tech合作区">
+        <div class="container">
+            <div class="tech-container">
+                <div class="tech展示">
+                    <h2 class="tech-title">技术实力展示</h2>
+                    <div class="flowchart">
+                        可交互流程图：药店网站→抗反扒代理池→多源爬虫→R/Python双栈清洗→SQL存储
+                    </div>
+                    <p>案例：某补剂组合（5-HTP+SSRI类药物）血清素冲突风险检测（附知识图谱路径）</p>
+                </div>
+                <div class="合作模块">
+                    <h2 class="tech-title">企业合作服务</h2>
+                    <div class="合作-list">
+                        1. 补剂数据API对接<br>
+                        2. 抗反扒解决方案<br>
+                        3. 症状-补剂冲突校验引擎
+                    </div>
+                    <button class="btn-green">获取数据样本</button>
+                    <button class="btn-orange">商务合作咨询</button>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
