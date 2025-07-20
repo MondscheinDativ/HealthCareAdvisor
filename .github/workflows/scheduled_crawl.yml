@@ -1,5 +1,9 @@
 name: Knowledge Graph Weekly Update
 
+# 添加权限设置，允许工作流写入仓库内容
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: '0 0 * * 0'  # 每周日UTC午夜运行 (北京时间周一8:00)
@@ -16,7 +20,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+        with:
+          # 添加fetch-depth参数，获取完整的仓库历史
+          fetch-depth: 0
+          
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
@@ -96,13 +103,19 @@ jobs:
           if [ -d "knowledge_graph/data/raw" ] && [ -n "$(find knowledge_graph/data/raw -type f)" ]; then
             echo "Found data files. Committing and pushing changes..."
             git config --global user.name 'GitHub Actions Bot'
-            git config --global user.email 'actions@users.noreply.github.com'
+            git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git status
             git add knowledge_graph/data/raw/*
-            git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
-            git push
+            # 检查是否有文件需要提交
+            if ! git diff --cached --quiet; then
+              git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
+              # 使用GITHUB_TOKEN环境变量推送
+              git push "https://${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" HEAD:${{ github.ref }}
+            else
+              echo "No changes to commit"
+            fi
           else
             echo "No data files to commit"
             exit 1  # 让这个步骤失败，便于调试
           fi
-        continue-on-error: false  # 失败时不继续
+        continue-on-error: false  # 失败时不继续    
