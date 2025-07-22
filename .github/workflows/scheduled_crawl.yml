@@ -1,5 +1,9 @@
 name: Knowledge Graph Weekly Update
 
+# 关键：添加写入权限配置
+permissions:
+  contents: write  # 允许修改仓库内容
+
 on:
   schedule:
     - cron: '0 0 * * 0'  # 每周日UTC午夜运行 (北京时间周一8:00)
@@ -17,27 +21,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整的仓库历史
-          
+          fetch-depth: 0  # 关键：获取完整历史，避免推送时冲突
+
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r knowledge_graph/requirements.txt
-          
+
       - name: Show current directory
         run: pwd
-      
+
       - name: List directory contents
         run: ls -la
-      
+
       - name: Create raw data directory if not exists
         run: mkdir -p knowledge_graph/data/raw
-      
+
       - name: Run ClinicalTrials.gov crawler
         run: |
           echo "Starting ClinicalTrials.gov crawler..."
@@ -49,7 +53,7 @@ jobs:
             echo "Directory knowledge_graph/data/raw does not exist!"
           fi
         continue-on-error: true  # 即使失败也继续
-        
+
       - name: Run PubMed crawler
         run: |
           echo "Starting PubMed crawler..."
@@ -61,7 +65,7 @@ jobs:
             echo "Directory knowledge_graph/data/raw does not exist!"
           fi
         continue-on-error: true  # 即使失败也继续
-        
+
       - name: Run NIH DSLD crawler
         run: |
           echo "Starting NIH DSLD crawler..."
@@ -73,7 +77,7 @@ jobs:
             echo "Directory knowledge_graph/data/raw does not exist!"
           fi
         continue-on-error: true  # 即使失败也继续
-        
+
       - name: Upload log files
         uses: actions/upload-artifact@v4
         if: always()  # 即使失败也上传
@@ -83,7 +87,7 @@ jobs:
             clinical_trials.log
             pubmed.log
             nih_dsld.log
-            
+
       - name: Upload generated data files
         uses: actions/upload-artifact@v4
         if: always()
@@ -91,23 +95,25 @@ jobs:
           name: generated-data
           path: knowledge_graph/data/raw/
           retention-days: 7  # 保留7天
-      
+
       - name: Commit and push changes
         run: |
           # 检查是否有数据文件生成
           if [ -d "knowledge_graph/data/raw" ] && [ -n "$(find knowledge_graph/data/raw -type f)" ]; then
             echo "Found data files. Committing and pushing changes..."
             git config --global user.name 'GitHub Actions Bot'
-            git config --global user.email 'actions@users.noreply.github.com'
-            
-            # 添加所有修改
+            git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'  # 官方推荐的机器人邮箱
+            git status
             git add knowledge_graph/data/raw/*
             
-            # 提交更改
-            git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
-            
-            # 使用token进行推送
-            git push https://${{ secrets.ACCESS_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref }}
+            # 检查是否有实际变更（避免空提交）
+            if ! git diff --cached --quiet; then
+              git commit -m "Auto-update: KG data refresh $(date +'%Y-%m-%d')"
+              # 关键：使用GITHUB_TOKEN进行认证推送
+              git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:${{ github.ref }}
+            else
+              echo "No changes to commit"
+            fi
           else
             echo "No data files to commit"
             exit 1  # 让这个步骤失败，便于调试
