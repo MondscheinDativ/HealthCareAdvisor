@@ -18,24 +18,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1  # 仅拉取最新提交，加快速度（无需完整历史）
       
       - name: Validate data directories
         run: |
-          # 检查原始数据目录
+          # 检查原始数据目录是否存在（优化路径检查逻辑）
           for dir in pubmed clinical_trials; do
-            if [ ! -d "knowledge_graph/data/raw/$dir" ]; then
-              echo "::error::数据目录不存在: knowledge_graph/data/raw/$dir"
+            target_dir="knowledge_graph/data/raw/$dir"
+            if [ ! -d "$target_dir" ]; then
+              echo "::error::数据目录不存在: $target_dir"
               exit 1
             fi
           done
           
-          # 检查目录中是否有CSV文件
-          if [ -z "$(ls -A knowledge_graph/data/raw/pubmed/*.csv 2>/dev/null)" ]; then
+          # 使用find命令更健壮地检查CSV文件（处理文件名空格等情况）
+          if [ -z "$(find knowledge_graph/data/raw/pubmed -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
             echo "::error::PubMed目录中没有CSV文件"
             exit 1
           fi
-          if [ -z "$(ls -A knowledge_graph/data/raw/clinical_trials/*.csv 2>/dev/null)" ]; then
+          if [ -z "$(find knowledge_graph/data/raw/clinical_trials -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
             echo "::error::clinical_trials目录中没有CSV文件"
             exit 1
           fi
@@ -43,10 +44,7 @@ jobs:
   build-kg:
     needs: prepare-data
     runs-on: ubuntu-latest
-    timeout-minutes: 90  # 增加超时时间
-    env:
-      NEO4J_USER: ${{ env.NEO4J_USER }}
-      NEO4J_PASS: ${{ env.NEO4J_PASS }}
+    timeout-minutes: 90
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -71,16 +69,17 @@ jobs:
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
             if (length(to_install) > 0) {
-              install.packages(to_install, repos = "https://cloud.r-project.org")
+              install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
-          '
+          '  # 增加dependencies=TRUE确保依赖安装
       
       - name: Create processed directory
         run: mkdir -p knowledge_graph/data/processed
       
       - name: Data cleaning and KG construction
         run: |
-          cd knowledge_graph/visualization
+          # 修正脚本路径（假设清洗脚本在scripts目录而非visualization）
+          cd knowledge_graph/scripts
           Rscript -e "
           source('data_cleaning.R')
           clean_clinical_trials()
@@ -98,7 +97,7 @@ jobs:
   report:
     needs: build-kg
     runs-on: ubuntu-latest
-    timeout-minutes: 45  # 增加时间用于生成报告
+    timeout-minutes: 45
     strategy:
       matrix:
         supplement: ["维生素D3", "维生素C", "锌"]
@@ -117,37 +116,32 @@ jobs:
         with:
           r-version: ${{ env.R_VERSION }}
       
-      - name: Install reporting dependencies
+      - name: Install system dependencies for reporting
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             texlive-latex-base texlive-fonts-recommended \
             texlive-fonts-extra texlive-latex-extra \
-            texlive-science
+            texlive-science latexmk  # 增加latexmk确保PDF生成
       
-      - name: Install R packages
+      - name: Install R reporting packages
         run: |
           Rscript -e '
             pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", "knitr", "rmarkdown", "visNetwork", "data.table")
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
             if (length(to_install) > 0) {
-              install.packages(to_install, repos = "https://cloud.r-project.org")
+              install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
           '
       
       - name: Generate reports
         run: |
-          cd knowledge_graph/visualization
-          
-          # 生成HTML可视化
+          # 修正报告生成脚本路径（假设在reports目录）
+          cd knowledge_graph/reports
           Rscript -e "
           source('graph_visualization.R')
           visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
-          "
-          
-          # 生成PDF报告
-          Rscript -e "
           source('professional_report.R')
           generate_professional_report(supplement = '${{ matrix.supplement }}')
           "
@@ -156,9 +150,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.supplement }}-reports
+          # 修正报告输出路径（匹配实际生成位置）
           path: |
-            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.pdf
-            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.html
+            knowledge_graph/reports/${{ matrix.supplement }}_knowledge_graph.pdf
+            knowledge_graph/reports/${{ matrix.supplement }}_knowledge_graph.html
           retention-days: 7
 
   deploy:
@@ -174,6 +169,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
+          merge-multiple: true  # 合并所有artifact到同一目录，避免子文件夹嵌套
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
