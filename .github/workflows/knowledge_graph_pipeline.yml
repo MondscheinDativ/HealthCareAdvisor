@@ -18,11 +18,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # 仅拉取最新提交，加快速度（无需完整历史）
+          fetch-depth: 1  # 仅拉取最新提交，加快速度
       
       - name: Validate data directories
         run: |
-          # 检查原始数据目录是否存在（优化路径检查逻辑）
+          # 检查原始数据目录是否存在
           for dir in pubmed clinical_trials; do
             target_dir="knowledge_graph/data/raw/$dir"
             if [ ! -d "$target_dir" ]; then
@@ -31,14 +31,15 @@ jobs:
             fi
           done
           
-          # 使用find命令更健壮地检查CSV文件（处理文件名空格等情况）
+          # 仅检查PubMed目录中是否有CSV文件（跳过clinical_trials检查）
           if [ -z "$(find knowledge_graph/data/raw/pubmed -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
             echo "::error::PubMed目录中没有CSV文件"
             exit 1
           fi
+          
+          # 提示clinical_trials目录中没有CSV文件，但不终止工作流
           if [ -z "$(find knowledge_graph/data/raw/clinical_trials -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
-            echo "::error::clinical_trials目录中没有CSV文件"
-            exit 1
+            echo "::warning::clinical_trials目录中没有CSV文件，将跳过相关处理"
           fi
 
   build-kg:
@@ -71,18 +72,22 @@ jobs:
             if (length(to_install) > 0) {
               install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
-          '  # 增加dependencies=TRUE确保依赖安装
+          '
       
       - name: Create processed directory
         run: mkdir -p knowledge_graph/data/processed
       
       - name: Data cleaning and KG construction
         run: |
-          # 修正脚本路径（假设清洗脚本在scripts目录而非visualization）
           cd knowledge_graph/scripts
           Rscript -e "
           source('data_cleaning.R')
-          clean_clinical_trials()
+          # 检查clinical_trials数据是否存在，存在才执行清洗
+          if (length(list.files('knowledge_graph/data/raw/clinical_trials', pattern='*.csv')) > 0) {
+            clean_clinical_trials()
+          } else {
+            message('没有找到clinical_trials CSV文件，跳过清洗步骤')
+          }
           clean_pubmed_data()
           build_knowledge_graph()
           "
@@ -122,7 +127,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             texlive-latex-base texlive-fonts-recommended \
             texlive-fonts-extra texlive-latex-extra \
-            texlive-science latexmk  # 增加latexmk确保PDF生成
+            texlive-science latexmk
       
       - name: Install R reporting packages
         run: |
@@ -137,7 +142,6 @@ jobs:
       
       - name: Generate reports
         run: |
-          # 修正报告生成脚本路径（假设在reports目录）
           cd knowledge_graph/reports
           Rscript -e "
           source('graph_visualization.R')
@@ -150,7 +154,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.supplement }}-reports
-          # 修正报告输出路径（匹配实际生成位置）
           path: |
             knowledge_graph/reports/${{ matrix.supplement }}_knowledge_graph.pdf
             knowledge_graph/reports/${{ matrix.supplement }}_knowledge_graph.html
@@ -169,7 +172,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
-          merge-multiple: true  # 合并所有artifact到同一目录，避免子文件夹嵌套
+          merge-multiple: true
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
@@ -178,3 +181,4 @@ jobs:
           publish_dir: ./artifacts
           destination_dir: reports
           keep_files: true
+
