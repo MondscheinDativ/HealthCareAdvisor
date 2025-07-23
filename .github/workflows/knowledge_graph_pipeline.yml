@@ -1,0 +1,184 @@
+name: PubMed Knowledge Graph Pipeline
+
+on:
+  schedule:
+    - cron: '0 0 * * 2'  # 每周二 UTC 00:00 (北京时间周二8:00)
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  R_VERSION: '4.3.2'
+  NEO4J_USER: ${{ secrets.NEO4J_USER }}
+  NEO4J_PASS: ${{ secrets.NEO4J_PASS }}
+
+jobs:
+  prepare-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Validate data directories
+        run: |
+          # 检查原始数据目录
+          for dir in pubmed clinical_trials; do
+            if [ ! -d "knowledge_graph/data/raw/$dir" ]; then
+              echo "::error::数据目录不存在: knowledge_graph/data/raw/$dir"
+              exit 1
+            fi
+          done
+          
+          # 检查目录中是否有CSV文件
+          if [ -z "$(ls -A knowledge_graph/data/raw/pubmed/*.csv 2>/dev/null)" ]; then
+            echo "::error::PubMed目录中没有CSV文件"
+            exit 1
+          fi
+          if [ -z "$(ls -A knowledge_graph/data/raw/clinical_trials/*.csv 2>/dev/null)" ]; then
+            echo "::error::clinical_trials目录中没有CSV文件"
+            exit 1
+          fi
+
+  build-kg:
+    needs: prepare-data
+    runs-on: ubuntu-latest
+    timeout-minutes: 90  # 增加超时时间
+    env:
+      NEO4J_USER: ${{ env.NEO4J_USER }}
+      NEO4J_PASS: ${{ env.NEO4J_PASS }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libssl-dev libxml2-dev \
+            libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
+      
+      - name: Install R packages
+        run: |
+          Rscript -e '
+            pkgs <- c("tidyverse", "neo4r", "future", "furrr", "digest", "disjointSet")
+            installed <- installed.packages()
+            to_install <- setdiff(pkgs, rownames(installed))
+            if (length(to_install) > 0) {
+              install.packages(to_install, repos = "https://cloud.r-project.org")
+            }
+          '
+      
+      - name: Create processed directory
+        run: mkdir -p knowledge_graph/data/processed
+      
+      - name: Data cleaning and KG construction
+        run: |
+          cd knowledge_graph/visualization
+          Rscript -e "
+          source('data_cleaning.R')
+          clean_clinical_trials()
+          clean_pubmed_data()
+          build_knowledge_graph()
+          "
+      
+      - name: Upload processed data
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-data
+          path: knowledge_graph/data/processed/
+          retention-days: 30
+
+  report:
+    needs: build-kg
+    runs-on: ubuntu-latest
+    timeout-minutes: 45  # 增加时间用于生成报告
+    strategy:
+      matrix:
+        supplement: ["维生素D3", "维生素C", "锌"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download processed data
+        uses: actions/download-artifact@v4
+        with:
+          name: processed-data
+          path: knowledge_graph/data/processed/
+      
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: ${{ env.R_VERSION }}
+      
+      - name: Install reporting dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base texlive-fonts-recommended \
+            texlive-fonts-extra texlive-latex-extra \
+            texlive-science
+      
+      - name: Install R packages
+        run: |
+          Rscript -e '
+            pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", "knitr", "rmarkdown", "visNetwork", "data.table")
+            installed <- installed.packages()
+            to_install <- setdiff(pkgs, rownames(installed))
+            if (length(to_install) > 0) {
+              install.packages(to_install, repos = "https://cloud.r-project.org")
+            }
+          '
+      
+      - name: Generate reports
+        run: |
+          cd knowledge_graph/visualization
+          
+          # 生成HTML可视化
+          Rscript -e "
+          source('graph_visualization.R')
+          visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
+          "
+          
+          # 生成PDF报告
+          Rscript -e "
+          source('professional_report.R')
+          generate_professional_report(supplement = '${{ matrix.supplement }}')
+          "
+      
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.supplement }}-reports
+          path: |
+            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.pdf
+            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.html
+          retention-days: 7
+
+  deploy:
+    needs: report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./artifacts
+          destination_dir: reports
+          keep_files: true
