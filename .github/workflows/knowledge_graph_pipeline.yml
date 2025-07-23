@@ -31,7 +31,7 @@ jobs:
             fi
           done
           
-          # 仅检查PubMed目录中是否有CSV文件（跳过clinical_trials检查）
+          # 仅检查PubMed目录中是否有CSV文件
           if [ -z "$(find knowledge_graph/data/raw/pubmed -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
             echo "::error::PubMed目录中没有CSV文件"
             exit 1
@@ -79,7 +79,8 @@ jobs:
       
       - name: Data cleaning and KG construction
         run: |
-          cd knowledge_graph/scripts
+          # 直接在visualization目录执行脚本（根据错误信息推测实际目录）
+          cd knowledge_graph/visualization
           Rscript -e "
           source('data_cleaning.R')
           # 检查clinical_trials数据是否存在，存在才执行清洗
@@ -142,7 +143,7 @@ jobs:
       
       - name: Generate reports
         run: |
-          cd knowledge_graph/reports
+          cd knowledge_graph/visualization
           Rscript -e "
           source('graph_visualization.R')
           visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
@@ -155,8 +156,8 @@ jobs:
         with:
           name: ${{ matrix.supplement }}-reports
           path: |
-            knowledge_graph/reports/${{ matrix.supplement }}_knowledge_graph.pdf
-            knowledge_graph/reports/${{ matrix.supplement }}_knowledge_graph.html
+            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.pdf
+            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.html
           retention-days: 7
 
   deploy:
@@ -181,4 +182,5 @@ jobs:
           publish_dir: ./artifacts
           destination_dir: reports
           keep_files: true
+
 
