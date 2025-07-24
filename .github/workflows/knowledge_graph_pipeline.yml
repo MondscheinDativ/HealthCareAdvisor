@@ -65,38 +65,29 @@ jobs:
       - name: Install R packages
         run: |
           Rscript -e '
-            # 安装devtools用于从GitHub安装包
+          # 安装必要工具包
+            if (!"remotes" %in% installed.packages()) {
+              install.packages("remotes", repos = "https://cloud.r-project.org")
+            }
             if (!"devtools" %in% installed.packages()) {
               install.packages("devtools", repos = "https://cloud.r-project.org")
             }
-            
-            # 安装CRAN上的包
+      
+            # 安装基础包
             pkgs <- c("tidyverse", "neo4r", "future", "furrr", "digest")
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
             if (length(to_install) > 0) {
               install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
-            
-            # 尝试从不同来源安装disjointSet包
+      
+          # 强制从CRAN存档安装disjointSet 0.0-24版本（已知可用版本）
             if (!"disjointSet" %in% installed.packages()) {
-              tryCatch({
-                # 尝试Bioconductor安装
-                if (!requireNamespace("BiocManager", quietly = TRUE))
-                  install.packages("BiocManager")
-                BiocManager::install("disjointSet")
-              }, error = function(e) {
-                message("Bioconductor安装失败，尝试GitHub")
-                tryCatch({
-                  # 尝试从GitHub安装（假设包托管在GitHub）
-                  devtools::install_github("cran/disjointSet")
-                }, error = function(e) {
-                  message("GitHub安装失败，尝试手动下载安装")
-                  # 尝试从archive.org下载旧版本
-                  download.file("https://cran.r-project.org/src/contrib/Archive/disjointSet/disjointSet_0.0-24.tar.gz", "disjointSet.tar.gz")
-                  install.packages("disjointSet.tar.gz", repos = NULL, type = "source")
-                })
-              })
+              remotes::install_version(
+                "disjointSet",
+                version = "0.0-24",  # 明确指定版本
+                repos = "https://cran.r-project.org/src/contrib/Archive/"
+              )
             }
           '
       
