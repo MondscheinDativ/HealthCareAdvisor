@@ -18,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # 仅拉取最新提交，加快速度
+          fetch-depth: 1
       
       - name: Validate data directories
         run: |
@@ -66,12 +66,7 @@ jobs:
       - name: Install R packages
         run: |
           Rscript -e '
-            # 安装devtools用于从GitHub安装包
-            if (!"devtools" %in% installed.packages()) {
-              install.packages("devtools", repos = "https://cloud.r-project.org")
-            }
-            
-            # 安装CRAN上的包
+            # 移除disjointSet包，因为它不存在
             pkgs <- c("tidyverse", "neo4r", "future", "furrr", "digest")
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
@@ -79,15 +74,9 @@ jobs:
               install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
             
-            # 尝试安装disjointSet包 - 可能需要从GitHub安装
-            if (!"disjointSet" %in% installed.packages()) {
-              tryCatch({
-                # 尝试CRAN安装
-                install.packages("disjointSet", repos = "https://cloud.r-project.org")
-              }, error = function(e) {
-                # 如果CRAN安装失败，尝试从GitHub安装（假设包托管在GitHub）
-                devtools::install_github("cran/disjointSet")
-              })
+            # 检查是否有替代包可用
+            if (!"igraph" %in% installed.packages()) {
+              install.packages("igraph", repos = "https://cloud.r-project.org")
             }
           '
       
@@ -99,6 +88,16 @@ jobs:
           # 在visualization目录执行脚本
           cd knowledge_graph/visualization
           Rscript -e "
+          # 尝试加载必要的包，不依赖disjointSet
+          if (!require('tidyverse')) install.packages('tidyverse')
+          if (!require('neo4r')) install.packages('neo4r')
+          if (!require('future')) install.packages('future')
+          if (!require('furrr')) install.packages('furrr')
+          if (!require('digest')) install.packages('digest')
+          
+          # 使用igraph作为可能的替代方案
+          if (!require('igraph')) install.packages('igraph')
+          
           source('data_cleaning.R')
           # 检查clinical_trials数据是否存在，存在才执行清洗
           if (length(list.files('knowledge_graph/data/raw/clinical_trials', pattern='*.csv')) > 0) {
