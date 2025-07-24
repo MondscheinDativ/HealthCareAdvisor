@@ -66,11 +66,28 @@ jobs:
       - name: Install R packages
         run: |
           Rscript -e '
-            pkgs <- c("tidyverse", "neo4r", "future", "furrr", "digest", "disjointSet")
+            # 安装devtools用于从GitHub安装包
+            if (!"devtools" %in% installed.packages()) {
+              install.packages("devtools", repos = "https://cloud.r-project.org")
+            }
+            
+            # 安装CRAN上的包
+            pkgs <- c("tidyverse", "neo4r", "future", "furrr", "digest")
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
             if (length(to_install) > 0) {
               install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
+            }
+            
+            # 尝试安装disjointSet包 - 可能需要从GitHub安装
+            if (!"disjointSet" %in% installed.packages()) {
+              tryCatch({
+                # 尝试CRAN安装
+                install.packages("disjointSet", repos = "https://cloud.r-project.org")
+              }, error = function(e) {
+                # 如果CRAN安装失败，尝试从GitHub安装（假设包托管在GitHub）
+                devtools::install_github("cran/disjointSet")
+              })
             }
           '
       
@@ -79,7 +96,7 @@ jobs:
       
       - name: Data cleaning and KG construction
         run: |
-          # 直接在visualization目录执行脚本（根据错误信息推测实际目录）
+          # 在visualization目录执行脚本
           cd knowledge_graph/visualization
           Rscript -e "
           source('data_cleaning.R')
