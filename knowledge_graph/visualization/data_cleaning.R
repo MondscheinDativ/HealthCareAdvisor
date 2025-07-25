@@ -100,7 +100,7 @@ build_entity_union_find <- function(nodes) {
   return(nodes)
 }
 
-# 构建知识图谱（保持原有逻辑，适配新的实体合并函数）
+# 构建知识图谱（修复supplement列缺失问题）
 build_knowledge_graph <- function() {
   # 检查环境变量
   if (Sys.getenv("NEO4J_USER") == "" || Sys.getenv("NEO4J_PASS") == "") {
@@ -114,31 +114,56 @@ build_knowledge_graph <- function() {
   trials <- tryCatch({
     read_csv("../data/processed/clinical_trials_clean.csv")
   }, error = function(e) {
-    message("未找到临床实验数据，跳过...")
-    tibble()
+    message("未找到临床实验数据，使用空表...")
+    tibble()  # 返回空数据框
   })
-  pubmed <- read_csv("../data/processed/pubmed_clean.csv")
   
-  # 创建节点（合并补剂实体）
-  supplement_nodes <- trials %>%
-    distinct(supplement) %>%
-    bind_rows(pubmed %>% distinct(supplement)) %>%
-    distinct() %>%
+  pubmed <- tryCatch({
+    read_csv("../data/processed/pubmed_clean.csv")
+  }, error = function(e) {
+    stop("错误：未找到PubMed数据，请先运行数据清洗流程")
+  })
+  
+  # 创建节点（修复：先检查数据是否为空）
+  if (nrow(trials) > 0 && nrow(pubmed) > 0) {
+    # 两者都有数据
+    supplement_nodes <- trials %>%
+      distinct(supplement) %>%
+      bind_rows(pubmed %>% distinct(supplement)) %>%
+      distinct()
+  } else if (nrow(trials) > 0) {
+    # 只有trials有数据
+    supplement_nodes <- trials %>% distinct(supplement)
+  } else if (nrow(pubmed) > 0) {
+    # 只有pubmed有数据
+    supplement_nodes <- pubmed %>% distinct(supplement)
+  } else {
+    stop("错误：trials和pubmed数据均为空，无法构建知识图谱")
+  }
+  
+  # 继续处理节点（保持原有逻辑不变）
+  supplement_nodes <- supplement_nodes %>%
     mutate(
       type = "Supplement",
       id = supplement,
       label = supplement
     ) %>%
-    build_entity_union_find()  # 调用新的实体合并函数
+    build_entity_union_find()  # 调用实体合并函数
   
-  # 创建关系
-  relations <- trials %>%
-    select(from = supplement, to = nct_id, rel_type = "STUDIED_IN") %>%
-    bind_rows(
-      pubmed %>%
-        select(from = supplement, to = pmid) %>%
-        mutate(rel_type = "RESEARCHED_IN")
-    )
+  # 创建关系（同样需要处理trials为空的情况）
+  relations <- tibble()  # 初始化空关系表
+  
+  if (nrow(trials) > 0) {
+    trials_relations <- trials %>%
+      select(from = supplement, to = nct_id, rel_type = "STUDIED_IN")
+    relations <- bind_rows(relations, trials_relations)
+  }
+  
+  pubmed_relations <- pubmed %>%
+    select(from = supplement, to = pmid) %>%
+    mutate(rel_type = "RESEARCHED_IN")
+  
+  relations <- bind_rows(relations, pubmed_relations)
   
   # 导出节点和边到CSV
   write_csv(supplement_nodes, "../data/processed/knowledge_graph_nodes.csv")
