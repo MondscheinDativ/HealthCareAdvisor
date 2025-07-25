@@ -73,6 +73,12 @@ jobs:
                           "visNetwork", "data.table")
             # 3. 替代 disjointSet 的包 + 扩展功能
             pkgs_extra <- c("stringdist", "udpipe")  # 文本匹配 + NLP 增强
+
+            # 显式检查 neo4r 是否安装
+            if (!"neo4r" %in% installed.packages()) {
+              install.packages("neo4r", repos = "https://cloud.r-project.org")
+            }
+            library(neo4r)  # 验证加载是否成功
             
             # 合并所有包
             all_pkgs <- c(pkgs_basic, pkgs_vis, pkgs_extra)
