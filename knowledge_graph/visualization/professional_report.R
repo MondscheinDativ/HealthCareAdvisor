@@ -4,26 +4,31 @@ library(igraph)
 library(ggtext)
 library(knitr)
 library(rmarkdown)
+library(visNetwork)  # 补充交互式可视化依赖
 
-# 1. 加载已爬取的数据
+# 1. 加载已爬取的数据（增加容错）
 load_data <- function(supplement = "维生素D3") {
   trials_path <- file.path("..", "data", "processed", "clinical_trials_clean.csv")
   pubmed_path <- file.path("..", "data", "processed", "pubmed_clean.csv")
   
-  if (!file.exists(trials_path) || !file.exists(pubmed_path)) {
-    stop("清洗后的数据文件不存在，请先运行数据清洗流程")
+  # 处理临床试验数据可能不存在的情况
+  if (!file.exists(trials_path)) {
+    message("警告：未找到临床试验数据，将使用空表")
+    trials <- tibble()
+  } else {
+    trials <- read_csv(trials_path) %>% filter(supplement == !!supplement)
   }
   
-  trials <- read_csv(trials_path) %>%
-    filter(supplement == !!supplement)
-  
-  pubmed <- read_csv(pubmed_path) %>%
-    filter(supplement == !!supplement)
+  # 确保PubMed数据存在
+  if (!file.exists(pubmed_path)) {
+    stop("错误：PubMed数据文件不存在，请先运行数据清洗流程")
+  }
+  pubmed <- read_csv(pubmed_path) %>% filter(supplement == !!supplement)
   
   list(trials = trials, pubmed = pubmed)
 }
 
-# 2. 专业统计分析
+# 2. 专业统计分析（修正top_n为slice_max）
 perform_statistical_analysis <- function(data) {
   # 临床试验阶段分布
   phase_dist <- data$trials %>%
@@ -37,11 +42,11 @@ perform_statistical_analysis <- function(data) {
     count(year) %>%
     complete(year = 2010:year(Sys.Date()), fill = list(n = 0))
   
-  # 疾病关联强度
+  # 疾病关联强度（修正top_n）
   condition_association <- data$trials %>%
     separate_rows(conditions, sep = ", ") %>%
     count(conditions, sort = TRUE) %>%
-    top_n(10, n) %>%
+    slice_max(n, n = 10) %>%  # 替代top_n，更稳定
     mutate(association_strength = n / max(n))
   
   list(
@@ -51,9 +56,8 @@ perform_statistical_analysis <- function(data) {
   )
 }
 
-# 3. 专业级知识图谱可视化
+# 3. 专业级知识图谱可视化（保持不变）
 create_professional_graph <- function(data, stats, supplement) {
-  # 创建节点
   nodes <- tibble(
     name = c(supplement,
              "临床试验",
@@ -78,7 +82,6 @@ create_professional_graph <- function(data, stats, supplement) {
       )
     )
   
-  # 创建关系
   edges <- tibble(
     from = c(1, 1, 2, 2, 3, 3),
     to = c(2, 3, 4:(3+nrow(stats$condition_association)), 
@@ -86,10 +89,8 @@ create_professional_graph <- function(data, stats, supplement) {
     relation = c("has_trials", "has_studies", "treats", "treats", "published_in", "published_in")
   )
   
-  # 创建图对象
   graph <- graph_from_data_frame(edges, vertices = nodes)
   
-  # 专业级可视化
   ggraph(graph, layout = "fr") +
     geom_edge_link(aes(color = relation),
                   arrow = arrow(length = unit(2, 'mm')),
@@ -117,12 +118,11 @@ create_professional_graph <- function(data, stats, supplement) {
     )
 }
 
-# 4. 生成PDF报告
+# 4. 生成PDF报告（修正输出路径）
 generate_professional_report <- function(supplement = "维生素D3") {
   data <- load_data(supplement)
   stats <- perform_statistical_analysis(data)
   
-  # 创建R Markdown临时文件
   rmd_content <- paste0(
     "---",
     "title: '", supplement, "知识图谱专业分析报告'",
@@ -166,14 +166,16 @@ generate_professional_report <- function(supplement = "维生素D3") {
   
   writeLines(rmd_content, "professional_report.Rmd")
   
-  # 渲染PDF
-  render("professional_report.Rmd", output_file = paste0(supplement, "_knowledge_graph.pdf"))
+  # 修正输出路径，确保文件生成在当前目录
+  output_file <- paste0(supplement, "_knowledge_graph.pdf")
+  render("professional_report.Rmd", output_file = output_file)
   
-  # 清理临时文件
   file.remove("professional_report.Rmd")
   
-  message("专业报告已生成: ", supplement, "_knowledge_graph.pdf")
+  message("专业报告已生成: ", output_file)
 }
 
-# 执行生成报告
-generate_professional_report()
+# 执行生成报告（仅在手动运行时触发，避免GitHub Actions中重复执行）
+if (interactive()) {
+  generate_professional_report()
+}
