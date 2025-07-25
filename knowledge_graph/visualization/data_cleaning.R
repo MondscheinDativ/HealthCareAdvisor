@@ -1,5 +1,5 @@
 library(tidyverse)
-library(neo4j)
+library(neo4r)
 library(future)
 library(furrr)
 library(digest)
