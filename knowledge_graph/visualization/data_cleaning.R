@@ -1,18 +1,18 @@
 library(tidyverse)
-library(neo4r)
+library(neo4j)
 library(future)
 library(furrr)
 library(digest)
-library(disjointSet)
+library(igraph)  # 新增：用于替代disjointSet实现实体合并
 
 # 并行处理增强性能
 plan(multisession, workers = 8)
 
-# 滚动哈希实现字符串归一化
+# 滚动哈希实现字符串归一化（保持不变）
 normalize_names <- function(names) {
   sapply(names, function(x) {
     hash <- digest(tolower(x), "xxhash32")
-    # 映射到标准名称
+    # 映射到标准名称（可根据实际需求扩展）
     switch(hash,
       "a1b2c3d4" = "维生素C",
       "e5f6g7h8" = "维生素D3",
@@ -21,7 +21,7 @@ normalize_names <- function(names) {
   })
 }
 
-# 清洗临床实验数据
+# 清洗临床实验数据（保持不变）
 clean_clinical_trials <- function() {
   files <- list.files("../data/raw/clinical_trials", pattern = "\\.csv$", full.names = TRUE)
   
@@ -40,7 +40,7 @@ clean_clinical_trials <- function() {
   return(combined)
 }
 
-# 清洗PubMed数据
+# 清洗PubMed数据（保持不变）
 clean_pubmed_data <- function() {
   files <- list.files("../data/raw/pubmed", pattern = "\\.csv$", full.names = TRUE)
   
@@ -62,29 +62,45 @@ clean_pubmed_data <- function() {
   return(combined)
 }
 
-# 并查集实现实体合并
+# 替代disjointSet：用igraph实现实体合并（并查集功能）
 build_entity_union_find <- function(nodes) {
-  ds <- disjointSet$new()
-  for (node in nodes$id) ds$add(node)
+  # 1. 初始化图（节点为实体id）
+  g <- make_empty_graph(n = nrow(nodes), directed = FALSE)
+  V(g)$name <- nodes$id  # 用实体id作为图节点名称
   
-  # 添加相似规则
+  # 2. 定义相似实体规则（原disjointSet的union逻辑）
   similar_rules <- list(
     c("维生素C", "维C"),
     c("维生素D3", "VD3")
   )
   
+  # 3. 为相似实体添加边（表示“需要合并”）
   for (pair in similar_rules) {
-    if (all(pair %in% nodes$id)) ds$union(pair[1], pair[2])
+    # 仅当两个实体都存在于节点中时才添加边
+    if (all(pair %in% nodes$id)) {
+      g <- add_edges(g, pair)
+    }
   }
   
-  # 返回代表元素
-  nodes %>%
-    mutate(root_id = sapply(id, ds$find)) %>%
+  # 4. 计算连通分量（等价于并查集的“根节点”）
+  components <- components(g)
+  # 为每个节点分配对应的根节点id（连通分量的代表）
+  nodes <- nodes %>%
+    mutate(
+      root_id = components$membership[match(id, names(components$membership))],
+      root_id = as.character(root_id)  # 转为字符串，避免数值型冲突
+    )
+  
+  # 5. 确定每个连通分量的规范名称（取第一个实体id）
+  nodes <- nodes %>%
     group_by(root_id) %>%
-    mutate(canonical_name = first(id))
+    mutate(canonical_name = first(id)) %>%
+    ungroup()
+  
+  return(nodes)
 }
 
-# 构建知识图谱
+# 构建知识图谱（保持原有逻辑，适配新的实体合并函数）
 build_knowledge_graph <- function() {
   # 检查环境变量
   if (Sys.getenv("NEO4J_USER") == "" || Sys.getenv("NEO4J_PASS") == "") {
@@ -94,10 +110,16 @@ build_knowledge_graph <- function() {
     neo4j_enabled <- TRUE
   }
   
-  trials <- read_csv("../data/processed/clinical_trials_clean.csv")
+  # 读取清洗后的数据（clinical_trials可能为空，用tryCatch兼容）
+  trials <- tryCatch({
+    read_csv("../data/processed/clinical_trials_clean.csv")
+  }, error = function(e) {
+    message("未找到临床实验数据，跳过...")
+    tibble()
+  })
   pubmed <- read_csv("../data/processed/pubmed_clean.csv")
   
-  # 创建节点
+  # 创建节点（合并补剂实体）
   supplement_nodes <- trials %>%
     distinct(supplement) %>%
     bind_rows(pubmed %>% distinct(supplement)) %>%
@@ -107,7 +129,7 @@ build_knowledge_graph <- function() {
       id = supplement,
       label = supplement
     ) %>%
-    build_entity_union_find()
+    build_entity_union_find()  # 调用新的实体合并函数
   
   # 创建关系
   relations <- trials %>%
@@ -170,7 +192,7 @@ import_nodes <- function(nodes, con, label) {
     )
     tryCatch({
       call_neo4j(query, con, parameters = list(nodes = as.list(batch)))
-      message("导入节点批次: ", length(batch), " 条记录")
+      message("导入节点批次: ", nrow(batch), " 条记录")
     }, error = function(e) {
       message("节点导入失败: ", e$message)
     })
@@ -192,7 +214,7 @@ import_relations <- function(relations, con) {
     "
     tryCatch({
       call_neo4j(query, con, parameters = list(rels = as.list(batch)))
-      message("导入关系批次: ", length(batch), " 条记录")
+      message("导入关系批次: ", nrow(batch), " 条记录")
     }, error = function(e) {
       message("关系导入失败: ", e$message)
     })
