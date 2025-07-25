@@ -2,8 +2,8 @@ name: PubMed Knowledge Graph Pipeline
 
 on:
   schedule:
-    - cron: '0 0 * * 2'  # 每周二 UTC 00:00 (北京时间周二8:00)
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 0 * * 2'  # 每周二 UTC 00:00（北京时间周二8:00）
+  workflow_dispatch:  # 手动触发入口
 
 env:
   R_VERSION: '4.3.2'
@@ -18,11 +18,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # 仅拉取最新提交，加快速度
-      
+          fetch-depth: 1  # 仅拉取最新提交加速
+
       - name: Validate data directories
         run: |
-          # 检查原始数据目录是否存在
+          # 检查原始数据目录
           for dir in pubmed clinical_trials; do
             target_dir="knowledge_graph/data/raw/$dir"
             if [ ! -d "$target_dir" ]; then
@@ -30,17 +30,16 @@ jobs:
               exit 1
             fi
           done
-          
-          # 仅检查PubMed目录中是否有CSV文件
+          # 检查 PubMed CSV 文件
           if [ -z "$(find knowledge_graph/data/raw/pubmed -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
-            echo "::error::PubMed目录中没有CSV文件"
+            echo "::error::PubMed 目录中无 CSV 文件"
             exit 1
           fi
-          
-          # 提示clinical_trials目录中没有CSV文件，但不终止工作流
+          # Clinical Trials 目录警告（非强制）
           if [ -z "$(find knowledge_graph/data/raw/clinical_trials -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
-            echo "::warning::clinical_trials目录中没有CSV文件，将跳过相关处理"
+            echo "::warning::Clinical Trials 目录无 CSV 文件，跳过相关处理"
           fi
+
   build-kg:
     needs: prepare-data
     runs-on: ubuntu-latest
@@ -48,68 +47,77 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ env.R_VERSION }}
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libcurl4-openssl-dev libssl-dev libxml2-dev \
             libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
-            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev
-      
-      - name: Install R packages
+            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
+            libgsl-dev  # 新增：给 stringdist 等包做依赖
+
+      - name: Install R packages（必装 + 替代 + 补充）
         run: |
           Rscript -e '
-          # 安装必要工具包
-            if (!"remotes" %in% installed.packages()) {
-              install.packages("remotes", repos = "https://cloud.r-project.org")
-            }
-            if (!"devtools" %in% installed.packages()) {
-              install.packages("devtools", repos = "https://cloud.r-project.org")
-            }
-      
-            # 安装基础包
-            pkgs <- c("tidyverse", "neo4r", "future", "furrr", "digest")
+            # 1. 基础工具包
+            pkgs_basic <- c("tidyverse", "neo4r", "future", "furrr", "digest",
+                            "remotes", "devtools")
+            # 2. 图可视化 + 报告
+            pkgs_vis <- c("ggraph", "igraph", "ggtext", "knitr", "rmarkdown", 
+                          "visNetwork", "data.table")
+            # 3. 替代 disjointSet 的包 + 扩展功能
+            pkgs_extra <- c("stringdist", "udpipe")  # 文本匹配 + NLP 增强
+            
+            # 合并所有包
+            all_pkgs <- c(pkgs_basic, pkgs_vis, pkgs_extra)
+            
+            # 安装逻辑：检查并安装缺失包
             installed <- installed.packages()
-            to_install <- setdiff(pkgs, rownames(installed))
+            to_install <- setdiff(all_pkgs, rownames(installed))
+            
             if (length(to_install) > 0) {
-              install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
-            }
-      
-          # 强制从CRAN存档安装disjointSet 0.0-24版本（已知可用版本）
-            if (!"disjointSet" %in% installed.packages()) {
-              remotes::install_version(
-                "disjointSet",
-                version = "0.0-24",  # 明确指定版本
-                repos = "https://cran.r-project.org/src/contrib/Archive/"
+              install.packages(
+                to_install, 
+                repos = "https://cloud.r-project.org", 
+                dependencies = TRUE
               )
             }
+            
+            # 4. 手动处理 disjointSet 替代（示例：注册 igraph 并查集逻辑）
+            # 可在 data_cleaning.R 里写：source("disjointSet_replacement.R")
+            # 这里先确保 igraph 可用
+            if (!require(igraph)) {
+              install.packages("igraph")
+              library(igraph)
+            }
           '
-      
+
       - name: Create processed directory
         run: mkdir -p knowledge_graph/data/processed
-      
-      - name: Data cleaning and KG construction
+
+      - name: 数据清洗 + 图谱构建（含 disjointSet 替代逻辑）
         run: |
-          # 在visualization目录执行脚本
           cd knowledge_graph/visualization
           Rscript -e "
-          source('data_cleaning.R')
-          # 检查clinical_trials数据是否存在，存在才执行清洗
-          if (length(list.files('knowledge_graph/data/raw/clinical_trials', pattern='*.csv')) > 0) {
-            clean_clinical_trials()
-          } else {
-            message('没有找到clinical_trials CSV文件，跳过清洗步骤')
-          }
-          clean_pubmed_data()
-          build_knowledge_graph()
+            source('data_cleaning.R')
+            # 检查 clinical_trials 数据
+            if (length(list.files('knowledge_graph/data/raw/clinical_trials', pattern='*.csv')) > 0) {
+              clean_clinical_trials()
+            } else {
+              message('无 Clinical Trials CSV 文件，跳过清洗')
+            }
+            
+            # 调用 clean_pubmed_data + build_knowledge_graph
+            clean_pubmed_data()
+            build_knowledge_graph()
           "
-      
+
       - name: Upload processed data
         uses: actions/upload-artifact@v4
         with:
@@ -127,48 +135,50 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Download processed data
         uses: actions/download-artifact@v4
         with:
           name: processed-data
           path: knowledge_graph/data/processed/
-      
+
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ env.R_VERSION }}
-      
-      - name: Install system dependencies for reporting
+
+      - name: Install 报告依赖（确保 tex 环境）
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             texlive-latex-base texlive-fonts-recommended \
             texlive-fonts-extra texlive-latex-extra \
             texlive-science latexmk
-      
-      - name: Install R reporting packages
+
+      - name: 安装报告 R 包（和 build-kg 复用，实际可优化缓存）
         run: |
           Rscript -e '
-            pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", "knitr", "rmarkdown", "visNetwork", "data.table")
+            pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", 
+                      "knitr", "rmarkdown", "visNetwork", "data.table")
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
             if (length(to_install) > 0) {
               install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
           '
-      
-      - name: Generate reports
+
+      - name: 生成报告（可视化 + PDF/HTML）
         run: |
           cd knowledge_graph/visualization
           Rscript -e "
-          source('graph_visualization.R')
-          visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
-          source('professional_report.R')
-          generate_professional_report(supplement = '${{ matrix.supplement }}')
+            source('graph_visualization.R')
+            visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
+            
+            source('professional_report.R')
+            generate_professional_report(supplement = '${{ matrix.supplement }}')
           "
-      
-      - name: Upload reports
+
+      - name: Upload 报告
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.supplement }}-reports
@@ -185,14 +195,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Download all artifacts
+
+      - name: Download 所有 artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts/
           merge-multiple: true
-      
-      - name: Deploy to GitHub Pages
+
+      - name: Deploy 到 GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
