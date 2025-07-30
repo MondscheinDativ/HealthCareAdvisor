@@ -61,42 +61,28 @@ jobs:
             libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
             libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
             libgsl-dev \
-            新增依赖：解决 libpng 和 systemfonts 问题
             libpng-tools \
-            libpng-dev \
             libsystemd-dev \
             fonts-dejavu-core \
-            # 修复 tex 环境（如果报告需要 PDF 渲染）
-            texlive-latex-extra texlive-fonts-extra \
-            texlive-latex-base texlive-fonts-recommended \
-            texlive-fonts-extra texlive-latex-extra texlive-science latexmk
-
+            texlive-latex-extra texlive-fonts-extra
+      
       - name: Install R packages（修复依赖链）
         run: |
           Rscript -e '
-            # 0. 强制安装 systemfonts（解决 ggforce 依赖问题）
             if (!require(systemfonts, quietly = TRUE)) {
               install.packages("systemfonts", repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
       
-            # 1. 基础工具包
             pkgs_basic <- c("tidyverse", "neo4r", "future", "furrr", "digest", "remotes", "devtools")
-      
-            # 2. 图可视化 + 报告（添加 ggforce 以支持复杂可视化）
             pkgs_vis <- c("ggraph", "igraph", "ggtext", "knitr", "rmarkdown", "visNetwork", "data.table", "ggforce")
-      
-            # 3. 替代 disjointSet 的包 + 扩展功能
             pkgs_extra <- c("stringdist", "udpipe")
       
-            # 显式检查并安装 neo4r（保持原有逻辑）
             if (!"neo4r" %in% installed.packages()) {
               install.packages("neo4r", repos = "https://cloud.r-project.org")
             }
       
-            # 合并所有包（添加 ggforce）
             all_pkgs <- c(pkgs_basic, pkgs_vis, pkgs_extra)
       
-            # 安装逻辑：检查并安装缺失包（添加 Ncpus 参数加速）
             installed <- installed.packages()
             to_install <- setdiff(all_pkgs, rownames(installed))
       
@@ -105,17 +91,17 @@ jobs:
                 to_install, 
                 repos = "https://cloud.r-project.org", 
                 dependencies = TRUE,
-                Ncpus = 4  # 并行安装，加速
+                Ncpus = 4
               )
             }
       
-            # 4. 验证关键包是否能加载（增加 ggforce 和 systemfonts）
             for (pkg in c("neo4r", "ggraph", "ggforce", "systemfonts")) {
               if (!require(pkg, character.only = TRUE)) {
                 stop(paste("包", pkg, "安装失败"))
               }
             }
           '
+    
       - name: Test Neo4j connection
         run: |
           Rscript -e '
