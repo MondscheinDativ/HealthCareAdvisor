@@ -63,10 +63,13 @@ jobs:
             libgsl-dev \
             新增依赖：解决 libpng 和 systemfonts 问题
             libpng-tools \
+            libpng-dev \
             libsystemd-dev \
             fonts-dejavu-core \
             # 修复 tex 环境（如果报告需要 PDF 渲染）
-            texlive-latex-extra texlive-fonts-extra
+            texlive-latex-extra texlive-fonts-extra \
+            texlive-latex-base texlive-fonts-recommended \
+            texlive-fonts-extra texlive-latex-extra texlive-science latexmk
 
       - name: Install R packages（修复依赖链）
         run: |
