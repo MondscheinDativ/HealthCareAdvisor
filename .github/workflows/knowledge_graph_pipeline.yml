@@ -43,7 +43,7 @@ jobs:
   build-kg:
     needs: prepare-data
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -113,6 +113,24 @@ jobs:
               }
             }
           '
+      - name: Test Neo4j connection
+        run: |
+          Rscript -e '
+            library(neo4r)
+            # 测试连接（使用 HTTP 协议，如之前修改）
+            con <- neo4j_api$new(
+              url = "http://localhost:7474",
+              user = "${{ secrets.NEO4J_USER }}",
+              password = "${{ secrets.NEO4J_PASS }}"
+            )
+            test_query <- "RETURN 1 AS test"
+            result <- tryCatch(call_neo4j(test_query, con), error = function(e) e)
+            if (inherits(result, "error")) {
+              stop("Neo4j connection failed: ", result$message)
+            } else {
+              cat("Neo4j connection test passed.\n")
+            }
+          '
     
       - name: Create processed directory
         run: mkdir -p knowledge_graph/data/processed
@@ -144,7 +162,7 @@ jobs:
   report:
     needs: build-kg
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       matrix:
         supplement: ["维生素D3", "维生素C", "锌"]
@@ -206,7 +224,7 @@ jobs:
   deploy:
     needs: report
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout repository
