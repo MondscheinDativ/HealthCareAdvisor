@@ -60,7 +60,13 @@ jobs:
             libcurl4-openssl-dev libssl-dev libxml2-dev \
             libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
             libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
-            libgsl-dev  # 新增：给 stringdist 等包做依赖
+            libgsl-dev \
+            新增依赖：解决 libpng 和 systemfonts 问题
+            libpng-tools \
+            libsystemd-dev \
+            fonts-dejavu-core \
+            # 修复 tex 环境（如果报告需要 PDF 渲染）
+            texlive-latex-extra texlive-fonts-extra
 
       - name: Install R packages（必装 + 替代 + 补充）
         run: |
