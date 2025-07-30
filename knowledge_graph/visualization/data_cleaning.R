@@ -173,7 +173,7 @@ build_knowledge_graph <- function() {
   if (neo4j_enabled) {
     message("正在连接到Neo4j数据库...")
     con <- neo4j_api$new(
-      url = "bolt://localhost:7687",
+      url = "http://localhost:7474",
       user = Sys.getenv("NEO4J_USER"),
       password = Sys.getenv("NEO4J_PASS")
     )
