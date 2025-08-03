@@ -8,11 +8,11 @@ library(igraph)  # 新增：用于替代disjointSet实现实体合并
 # 并行处理增强性能
 plan(multisession, workers = 8)
 
-# 滚动哈希实现字符串归一化（保持不变）
+# 滚动哈希实现字符串归一化
 normalize_names <- function(names) {
   sapply(names, function(x) {
     hash <- digest(tolower(x), "xxhash32")
-    # 映射到标准名称（可根据实际需求扩展）
+    # 映射到标准名称
     switch(hash,
       "a1b2c3d4" = "维生素C",
       "e5f6g7h8" = "维生素D3",
@@ -21,7 +21,7 @@ normalize_names <- function(names) {
   })
 }
 
-# 清洗临床实验数据（保持不变）
+# 清洗临床实验数据
 clean_clinical_trials <- function() {
   files <- list.files("../data/raw/clinical_trials", pattern = "\\.csv$", full.names = TRUE)
   
@@ -40,7 +40,7 @@ clean_clinical_trials <- function() {
   return(combined)
 }
 
-# 清洗PubMed数据（保持不变）
+# 清洗PubMed数据
 clean_pubmed_data <- function() {
   files <- list.files("../data/raw/pubmed", pattern = "\\.csv$", full.names = TRUE)
   
@@ -141,7 +141,7 @@ build_knowledge_graph <- function() {
     stop("错误：trials和pubmed数据均为空，无法构建知识图谱")
   }
   
-  # 继续处理节点（保持原有逻辑不变）
+  # 继续处理节点
   supplement_nodes <- supplement_nodes %>%
     mutate(
       type = "Supplement",
@@ -169,8 +169,12 @@ build_knowledge_graph <- function() {
   write_csv(supplement_nodes, "../data/processed/knowledge_graph_nodes.csv")
   write_csv(relations, "../data/processed/knowledge_graph_edges.csv")
   
-  # 导出到Neo4j（如果启用）
-  if (neo4j_enabled) {
+  # 仅在非GitHub Actions环境中连接Neo4j
+  # 判断是否在GitHub Actions环境（CI环境）
+  is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
+  
+  # 导出到Neo4j（仅在非CI环境且启用时执行）
+  if (!is_ci && neo4j_enabled) {  # 新增：!is_ci 确保CI环境跳过
     message("正在连接到Neo4j数据库...")
     con <- neo4j_api$new(
       url = "http://localhost:7474",
@@ -201,8 +205,16 @@ build_knowledge_graph <- function() {
     } else {
       message("跳过Neo4j数据导入")
     }
+  }else {
+    # CI环境或未启用Neo4j时，明确提示跳过
+    if (is_ci) {
+      message("GitHub Actions环境：跳过Neo4j连接，仅保留CSV数据")
+    } else {
+      message("Neo4j未启用，仅保留CSV数据")
+    }
   }
 }
+
 
 # 辅助函数：批量导入节点
 import_nodes <- function(nodes, con, label) {
