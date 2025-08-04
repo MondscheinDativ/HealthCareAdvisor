@@ -102,20 +102,27 @@ build_entity_union_find <- function(nodes) {
 
 # 构建知识图谱（修复supplement列缺失问题）
 build_knowledge_graph <- function() {
-  # 检查环境变量
-  if (Sys.getenv("NEO4J_USER") == "" || Sys.getenv("NEO4J_PASS") == "") {
-    message("警告：未检测到Neo4j凭据，将仅生成CSV文件")
+  # 1. 强制设置：在GitHub Actions中完全禁用Neo4j
+  is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
+  if (is_ci) {
+    message("===== 检测到GitHub Actions环境，强制禁用Neo4j连接 =====")
     neo4j_enabled <- FALSE
   } else {
-    neo4j_enabled <- TRUE
+    # 本地环境才检查凭据
+    if (Sys.getenv("NEO4J_USER") == "" || Sys.getenv("NEO4J_PASS") == "") {
+      message("警告：未检测到Neo4j凭据，将仅生成CSV文件")
+      neo4j_enabled <- FALSE
+    } else {
+      neo4j_enabled <- TRUE
+    }
   }
   
-  # 读取清洗后的数据（clinical_trials可能为空，用tryCatch兼容）
+  # 2. 读取清洗后的数据
   trials <- tryCatch({
     read_csv("../data/processed/clinical_trials_clean.csv")
   }, error = function(e) {
     message("未找到临床实验数据，使用空表...")
-    tibble()  # 返回空数据框
+    tibble()
   })
   
   pubmed <- tryCatch({
@@ -124,35 +131,31 @@ build_knowledge_graph <- function() {
     stop("错误：未找到PubMed数据，请先运行数据清洗流程")
   })
   
-  # 创建节点（修复：先检查数据是否为空）
+  # 3. 创建节点
   if (nrow(trials) > 0 && nrow(pubmed) > 0) {
-    # 两者都有数据
     supplement_nodes <- trials %>%
       distinct(supplement) %>%
       bind_rows(pubmed %>% distinct(supplement)) %>%
       distinct()
   } else if (nrow(trials) > 0) {
-    # 只有trials有数据
     supplement_nodes <- trials %>% distinct(supplement)
   } else if (nrow(pubmed) > 0) {
-    # 只有pubmed有数据
     supplement_nodes <- pubmed %>% distinct(supplement)
   } else {
     stop("错误：trials和pubmed数据均为空，无法构建知识图谱")
   }
   
-  # 继续处理节点
+  # 处理节点
   supplement_nodes <- supplement_nodes %>%
     mutate(
       type = "Supplement",
       id = supplement,
       label = supplement
     ) %>%
-    build_entity_union_find()  # 调用实体合并函数
+    build_entity_union_find()
   
-  # 创建关系（同样需要处理trials为空的情况）
-  relations <- tibble()  # 初始化空关系表
-  
+  # 4. 创建关系
+  relations <- tibble()
   if (nrow(trials) > 0) {
     trials_relations <- trials %>%
       select(from = supplement, to = nct_id, rel_type = "STUDIED_IN")
@@ -162,58 +165,55 @@ build_knowledge_graph <- function() {
   pubmed_relations <- pubmed %>%
     select(from = supplement, to = pmid) %>%
     mutate(rel_type = "RESEARCHED_IN")
-  
   relations <- bind_rows(relations, pubmed_relations)
   
-  # 导出节点和边到CSV
+  # 5. 导出CSV（核心数据，必须执行）
   write_csv(supplement_nodes, "../data/processed/knowledge_graph_nodes.csv")
   write_csv(relations, "../data/processed/knowledge_graph_edges.csv")
+  message("知识图谱CSV数据已成功生成")
   
-  # 仅在非GitHub Actions环境中连接Neo4j
-  # 判断是否在GitHub Actions环境（CI环境）
-  is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
-  
-  # 导出到Neo4j（仅在非CI环境且启用时执行）
-  if (!is_ci && neo4j_enabled) {  # 新增：!is_ci 确保CI环境跳过
-    message("正在连接到Neo4j数据库...")
-    con <- neo4j_api$new(
-      url = "http://localhost:7474",
-      user = Sys.getenv("NEO4J_USER"),
-      password = Sys.getenv("NEO4J_PASS")
-    )
+  # 6. 仅在本地环境且启用时连接Neo4j
+  if (neo4j_enabled && !is_ci) {
+    message("正在连接到本地Neo4j数据库...")
+    con <- tryCatch({
+      neo4j_api$new(
+        url = "http://localhost:7474",
+        user = Sys.getenv("NEO4J_USER"),
+        password = Sys.getenv("NEO4J_PASS")
+      )
+    }, error = function(e) {
+      message("Neo4j初始化失败: ", e$message)
+      return(NULL)
+    })
     
-    # 检查连接
-    test_query <- "RETURN 'Connection successful' AS result"
-    test_result <- tryCatch(
-      call_neo4j(test_query, con),
-      error = function(e) {
-        message("Neo4j连接失败: ", e$message)
-        return(NULL)
+    if (!is.null(con)) {
+      test_query <- "RETURN 'Connection successful' AS result"
+      test_result <- tryCatch(
+        call_neo4j(test_query, con),
+        error = function(e) {
+          message("Neo4j连接测试失败: ", e$message)
+          return(NULL)
+        }
+      )
+      
+      if (!is.null(test_result)) {
+        message("成功连接到Neo4j，开始导入数据...")
+        import_nodes(supplement_nodes, con, "Supplement")
+        import_relations(relations, con)
+        message("Neo4j数据导入完成")
+      } else {
+        message("跳过Neo4j数据导入")
       }
-    )
-    
-    if (!is.null(test_result)) {
-      message("成功连接到Neo4j，开始导入数据...")
-      
-      # 批量导入节点
-      import_nodes(supplement_nodes, con, "Supplement")
-      
-      # 批量导入关系
-      import_relations(relations, con)
-      
-      message("Neo4j数据导入完成")
-    } else {
-      message("跳过Neo4j数据导入")
     }
-  }else {
-    # CI环境或未启用Neo4j时，明确提示跳过
+  } else {
     if (is_ci) {
-      message("GitHub Actions环境：跳过Neo4j连接，仅保留CSV数据")
+      message("===== GitHub Actions环境：已跳过Neo4j相关操作 =====")
     } else {
-      message("Neo4j未启用，仅保留CSV数据")
+      message("未启用Neo4j，仅保留CSV数据")
     }
   }
 }
+
 
 
 # 辅助函数：批量导入节点
