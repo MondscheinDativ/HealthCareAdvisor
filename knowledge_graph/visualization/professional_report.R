@@ -31,9 +31,11 @@ load_data <- function(supplement = "维生素D3") {
 # 2. 专业统计分析（修正top_n为slice_max）
 perform_statistical_analysis <- function(data) {
   # 临床试验阶段分布
-  phase_dist <- data$trials %>%
-    count(phase = `Phase`) %>%
-    drop_na()
+  phase_dist <- if (nrow(data$trials) > 0) {
+    data$trials %>% count(phase = `Phase`) %>% drop_na()
+  } else {
+    tibble(phase = character(), n = integer())  # 返回空表但保留结构
+  }
   
   # 文献发表年份趋势
   pub_year_trend <- data$pubmed %>%
@@ -43,11 +45,15 @@ perform_statistical_analysis <- function(data) {
     complete(year = 2010:year(Sys.Date()), fill = list(n = 0))
   
   # 疾病关联强度（修正top_n）
-  condition_association <- data$trials %>%
-    separate_rows(conditions, sep = ", ") %>%
-    count(conditions, sort = TRUE) %>%
-    slice_max(n, n = 10) %>%  # 替代top_n，更稳定
-    mutate(association_strength = n / max(n))
+  condition_association <- if (nrow(data$trials) > 0) {
+    data$trials %>%
+      separate_rows(conditions, sep = ", ") %>%
+      count(conditions, sort = TRUE) %>%
+      slice_max(n, n = 10) %>%
+      mutate(association_strength = n / max(n))
+  } else {
+    tibble(conditions = character(), n = integer(), association_strength = numeric())  # 保留结构
+  }
   
   list(
     phase_dist = phase_dist,
