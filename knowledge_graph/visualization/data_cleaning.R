@@ -107,15 +107,22 @@ build_entity_union_find <- function(nodes) {
   return(nodes)
 }
 
-# 构建知识图谱（修复supplement列缺失问题）
+
+# 构建知识图谱（修复supplement列缺失问题 + 条件加载neo4r）
 build_knowledge_graph <- function() {
-  # 1. 强制设置：在GitHub Actions中完全禁用Neo4j
+  # 1. 强制设置：在GitHub Actions中完全禁用Neo4j并条件加载neo4r
   is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
   if (is_ci) {
     message("===== 检测到GitHub Actions环境，强制禁用Neo4j连接 =====")
     neo4j_enabled <- FALSE
   } else {
-    # 本地环境才检查凭据
+    # 本地环境才检查凭据和加载neo4r
+    if (!requireNamespace("neo4r", quietly = TRUE)) {
+      stop("本地环境需安装neo4r包，请运行：install.packages('neo4r')")
+    }
+    # 加载neo4r（仅本地环境）
+    library(neo4r)
+    
     if (Sys.getenv("NEO4J_USER") == "" || Sys.getenv("NEO4J_PASS") == "") {
       message("警告：未检测到Neo4j凭据，将仅生成CSV文件")
       neo4j_enabled <- FALSE
@@ -221,10 +228,13 @@ build_knowledge_graph <- function() {
   }
 }
 
-
-
-# 辅助函数：批量导入节点
+# 辅助函数：批量导入节点（依赖neo4r，仅本地环境执行）
 import_nodes <- function(nodes, con, label) {
+  # 检查neo4r是否可用（双重保险）
+  if (!requireNamespace("neo4r", quietly = TRUE)) {
+    stop("导入节点需neo4r包，请在本地环境安装")
+  }
+  
   batch_size <- 500
   batches <- split(nodes, (seq(nrow(nodes)) %/% batch_size))
   
@@ -235,7 +245,7 @@ import_nodes <- function(nodes, con, label) {
       "SET s += apoc.map.removeKeys(node, ['id'])"
     )
     tryCatch({
-      call_neo4j(query, con, parameters = list(nodes = as.list(batch)))
+      neo4r::call_neo4j(query, con, parameters = list(nodes = as.list(batch)))  # 显式指定neo4r::前缀
       message("导入节点批次: ", nrow(batch), " 条记录")
     }, error = function(e) {
       message("节点导入失败: ", e$message)
@@ -243,8 +253,13 @@ import_nodes <- function(nodes, con, label) {
   }
 }
 
-# 辅助函数：批量导入关系
+# 辅助函数：批量导入关系（依赖neo4r，仅本地环境执行）
 import_relations <- function(relations, con) {
+  # 检查neo4r是否可用（双重保险）
+  if (!requireNamespace("neo4r", quietly = TRUE)) {
+    stop("导入关系需neo4r包，请在本地环境安装")
+  }
+  
   batch_size <- 500
   batches <- split(relations, (seq(nrow(relations)) %/% batch_size))
   
@@ -257,7 +272,7 @@ import_relations <- function(relations, con) {
     SET r.type = rel.rel_type
     "
     tryCatch({
-      call_neo4j(query, con, parameters = list(rels = as.list(batch)))
+      neo4r::call_neo4j(query, con, parameters = list(rels = as.list(batch)))  # 显式指定neo4r::前缀
       message("导入关系批次: ", nrow(batch), " 条记录")
     }, error = function(e) {
       message("关系导入失败: ", e$message)
