@@ -1,9 +1,16 @@
 library(tidyverse)
-library(neo4r)
 library(future)
 library(furrr)
 library(digest)
-library(igraph)  # 新增：用于替代disjointSet实现实体合并
+library(igraph)
+# 仅在非CI环境加载neo4r
+is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
+if (!is_ci) {
+  if (!require(neo4r, quietly = TRUE)) {
+    stop("本地环境需要安装neo4r包，请运行：install.packages('neo4r')")
+  }
+  library(neo4r)
+}
 
 # 并行处理增强性能
 plan(multisession, workers = 8)
