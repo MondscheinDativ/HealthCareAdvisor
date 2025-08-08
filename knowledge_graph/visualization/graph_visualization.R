@@ -1,5 +1,5 @@
 library(visNetwork)
-library(neo4r)
+#library(neo4r)
 library(dplyr)
 library(data.table)
 
