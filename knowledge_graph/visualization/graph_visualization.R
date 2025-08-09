@@ -2,6 +2,7 @@ library(visNetwork)
 #library(neo4r)
 library(dplyr)
 library(data.table)
+library(tidyverse)
 
 visualize_core_graph <- function(focus_supplement = "维生素D3", depth = 2) {
   # 从清洗后数据加载
