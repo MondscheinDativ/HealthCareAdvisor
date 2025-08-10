@@ -178,13 +178,32 @@ jobs:
       - name: 安装报告 R 包
         run: |
           Rscript -e '
+            # 明确指定需要安装的包，包含 tidyverse
             pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", 
-                      "knitr", "rmarkdown", "visNetwork", "data.table")
+                      "knitr", "rmarkdown", "visNetwork", "data.table", "readr")
+      
+            # 检查已安装的包
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
+      
+            # 安装缺失的包，强制依赖安装
             if (length(to_install) > 0) {
-              install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE)
+              message("安装缺失的包: ", paste(to_install, collapse = ", "))
+              install.packages(
+                to_install, 
+                repos = "https://cloud.r-project.org", 
+                dependencies = TRUE,  # 安装所有依赖
+                Ncpus = 4  # 并行安装加速
+              )
             }
+      
+            # 验证核心包是否安装成功
+            for (pkg in pkgs) {
+              if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+                stop(paste("包", pkg, "安装失败，请检查网络或依赖"))
+              }
+            }
+            message("所有报告依赖包安装成功")
           '
 
       - name: 生成报告（可视化 + PDF/HTML）
