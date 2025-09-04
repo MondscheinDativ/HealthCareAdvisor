@@ -4,9 +4,19 @@ library(igraph)
 library(ggtext)
 library(knitr)
 library(rmarkdown)
-library(visNetwork)  # 补充交互式可视化依赖
+library(visNetwork)
 
-# 1. 加载已爬取的数据（增加容错）
+# 辅助函数: 生成 ASCII-safe 文件名
+sanitize_filename <- function(name) {
+  safe <- iconv(name, from = "UTF-8", to = "ASCII//TRANSLIT", sub = "")
+  safe <- gsub("[^A-Za-z0-9_-]", "_", safe)
+  safe <- gsub("_+", "_", safe)
+  safe <- trimws(safe, which = "both", whitespace = "_")
+  if (safe == "") safe <- "report"
+  return(safe)
+}
+
+# 加载数据
 load_data <- function(supplement = "维生素D3") {
   trials_path <- file.path("..", "data", "processed", "clinical_trials_clean.csv")
   pubmed_path <- file.path("..", "data", "processed", "pubmed_clean.csv")
@@ -26,7 +36,7 @@ load_data <- function(supplement = "维生素D3") {
   list(trials = trials, pubmed = pubmed)
 }
 
-# 2. 专业统计分析
+# 专业统计分析
 perform_statistical_analysis <- function(data) {
   phase_dist <- if (nrow(data$trials) > 0) {
     data$trials %>% count(phase = `Phase`) %>% drop_na()
@@ -57,7 +67,7 @@ perform_statistical_analysis <- function(data) {
   )
 }
 
-# 3. 知识图谱可视化
+# 知识图谱可视化
 create_professional_graph <- function(data, stats, supplement) {
   nodes <- tibble(
     name = c(supplement,
@@ -119,7 +129,7 @@ create_professional_graph <- function(data, stats, supplement) {
     )
 }
 
-# 4. 生成报告（支持 PDF + HTML，自定义输出文件名）
+# 生成报告（支持 PDF + HTML，带安全文件名）
 generate_professional_report <- function(supplement = "维生素D3",
                                          output_pdf = NULL,
                                          output_html = NULL) {
@@ -170,15 +180,17 @@ generate_professional_report <- function(supplement = "维生素D3",
   
   writeLines(rmd_content, "professional_report.Rmd")
   
-  if (!is.null(output_pdf)) {
-    render("professional_report.Rmd", output_file = output_pdf, output_format = "pdf_document")
-    message("PDF报告已生成: ", output_pdf)
+  safe_name <- sanitize_filename(supplement)
+  if (is.null(output_pdf)) {
+    output_pdf <- paste0(safe_name, "_knowledge_graph.pdf")
+  }
+  if (is.null(output_html)) {
+    output_html <- paste0(safe_name, "_knowledge_graph.html")
   }
   
-  if (!is.null(output_html)) {
-    render("professional_report.Rmd", output_file = output_html, output_format = "html_document")
-    message("HTML报告已生成: ", output_html)
-  }
+  render("professional_report.Rmd", output_file = output_pdf, output_format = "pdf_document")
+  render("professional_report.Rmd", output_file = output_html, output_format = "html_document")
   
   file.remove("professional_report.Rmd")
+  message("报告已生成: ", output_pdf, " 和 ", output_html)
 }
