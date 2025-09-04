@@ -23,7 +23,6 @@ jobs:
 
       - name: Validate data directories
         run: |
-          # 检查原始数据目录
           for dir in pubmed clinical_trials; do
             target_dir="knowledge_graph/data/raw/$dir"
             if [ ! -d "$target_dir" ]; then
@@ -31,12 +30,10 @@ jobs:
               exit 1
             fi
           done
-          # 检查 PubMed CSV 文件
           if [ -z "$(find knowledge_graph/data/raw/pubmed -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
             echo "::error::PubMed 目录中无 CSV 文件"
             exit 1
           fi
-          # Clinical Trials 目录警告（非强制）
           if [ -z "$(find knowledge_graph/data/raw/clinical_trials -maxdepth 1 -type f -name '*.csv' 2>/dev/null)" ]; then
             echo "::warning::Clinical Trials 目录无 CSV 文件，跳过相关处理"
           fi
@@ -66,58 +63,38 @@ jobs:
             libsystemd-dev \
             fonts-dejavu-core \
             texlive-latex-extra texlive-fonts-extra
-      
+
       - name: Install R packages（优化CI环境依赖）
         run: |
           Rscript -e '
-            # 强制安装systemfonts解决依赖
             if (!require(systemfonts, quietly = TRUE)) {
               install.packages("systemfonts", repos = "https://cloud.r-project.org", dependencies = TRUE)
             }
-            
-            # 区分CI和本地环境的包安装
             is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
-            
-            # 基础包（所有环境都需要）
             pkgs_basic <- c("tidyverse", "future", "furrr", "digest", "remotes", "devtools")
             pkgs_vis <- c("ggraph", "igraph", "ggtext", "knitr", "rmarkdown", "visNetwork", "data.table", "ggforce")
             pkgs_extra <- c("stringdist", "udpipe")
-            
-            # CI环境不安装neo4r（因为用不到）
             if (!is_ci) {
               pkgs_basic <- c(pkgs_basic, "neo4r")
             }
-            
-            # 合并并安装
             all_pkgs <- unique(c(pkgs_basic, pkgs_vis, pkgs_extra))
             installed <- installed.packages()
             to_install <- setdiff(all_pkgs, rownames(installed))
-            
             if (length(to_install) > 0) {
-              install.packages(
-                to_install, 
-                repos = "https://cloud.r-project.org", 
-                dependencies = TRUE,
-                Ncpus = 4
-              )
+              install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE, Ncpus = 4)
             }
-            
-            # 验证核心包（CI环境跳过neo4r验证）
             core_pkgs <- if (is_ci) {
               c("ggraph", "ggforce", "systemfonts")
             } else {
               c("neo4r", "ggraph", "ggforce", "systemfonts")
             }
-            
             for (pkg in core_pkgs) {
               if (!require(pkg, character.only = TRUE)) {
                 stop(paste("包", pkg, "安装失败"))
               }
             }
           '
-    
-      # 删除Neo4j连接测试步骤（这是导致报错的核心原因）
-    
+
       - name: Create processed directory
         run: mkdir -p knowledge_graph/data/processed
 
@@ -126,14 +103,11 @@ jobs:
           cd knowledge_graph/visualization
           Rscript -e "
             source('data_cleaning.R')
-            # 检查 clinical_trials 数据
             if (length(list.files('../data/raw/clinical_trials', pattern='*.csv')) > 0) {
               clean_clinical_trials()
             } else {
               message('无 Clinical Trials CSV 文件，跳过清洗')
             }
-            
-            # 调用 clean_pubmed_data + build_knowledge_graph
             clean_pubmed_data()
             build_knowledge_graph()
           "
@@ -167,43 +141,30 @@ jobs:
         with:
           r-version: ${{ env.R_VERSION }}
 
-      - name: Install 报告依赖（确保 tex 环境）
+      - name: Install 报告依赖（确保 tex 环境 + 中文支持）
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             texlive-latex-base texlive-fonts-recommended \
             texlive-fonts-extra texlive-latex-extra \
-            texlive-science latexmk
+            texlive-science latexmk \
+            texlive-lang-chinese fonts-noto-cjk
 
       - name: 安装报告 R 包
         run: |
           Rscript -e '
-            # 明确指定需要安装的包，包含 tidyverse
             pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", 
                       "knitr", "rmarkdown", "visNetwork", "data.table", "readr")
-      
-            # 检查已安装的包
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
-      
-            # 安装缺失的包，强制依赖安装
             if (length(to_install) > 0) {
-              message("安装缺失的包: ", paste(to_install, collapse = ", "))
-              install.packages(
-                to_install, 
-                repos = "https://cloud.r-project.org", 
-                dependencies = TRUE,  # 安装所有依赖
-                Ncpus = 4  # 并行安装加速
-              )
+              install.packages(to_install, repos = "https://cloud.r-project.org", dependencies = TRUE, Ncpus = 4)
             }
-      
-            # 验证核心包是否安装成功
             for (pkg in pkgs) {
               if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
-                stop(paste("包", pkg, "安装失败，请检查网络或依赖"))
+                stop(paste("包", pkg, "安装失败"))
               }
             }
-            message("所有报告依赖包安装成功")
           '
 
       - name: 生成报告（可视化 + PDF/HTML）
@@ -211,10 +172,20 @@ jobs:
           cd knowledge_graph/visualization
           Rscript -e "
             source('graph_visualization.R')
-            visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
-            
             source('professional_report.R')
-            generate_professional_report(supplement = '${{ matrix.supplement }}')
+            supplement <- '${{ matrix.supplement }}'
+            safe_name <- switch(supplement,
+              '维生素D3' = 'VitaminD3',
+              '维生素C'  = 'VitaminC',
+              '锌'       = 'Zinc',
+              supplement
+            )
+            visualize_core_graph(focus_supplement = supplement)
+            generate_professional_report(
+              supplement = supplement,
+              output_pdf = paste0(safe_name, '_knowledge_graph.pdf'),
+              output_html = paste0(safe_name, '_knowledge_graph.html')
+            )
           "
 
       - name: Upload 报告
@@ -222,8 +193,12 @@ jobs:
         with:
           name: ${{ matrix.supplement }}-reports
           path: |
-            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.pdf
-            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.html
+            knowledge_graph/visualization/VitaminD3_knowledge_graph.pdf
+            knowledge_graph/visualization/VitaminD3_knowledge_graph.html
+            knowledge_graph/visualization/VitaminC_knowledge_graph.pdf
+            knowledge_graph/visualization/VitaminC_knowledge_graph.html
+            knowledge_graph/visualization/Zinc_knowledge_graph.pdf
+            knowledge_graph/visualization/Zinc_knowledge_graph.html
           retention-days: 7
 
   deploy:
@@ -248,3 +223,4 @@ jobs:
           publish_dir: ./artifacts
           destination_dir: reports
           keep_files: true
+
