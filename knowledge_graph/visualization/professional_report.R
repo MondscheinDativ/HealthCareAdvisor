@@ -11,7 +11,6 @@ load_data <- function(supplement = "维生素D3") {
   trials_path <- file.path("..", "data", "processed", "clinical_trials_clean.csv")
   pubmed_path <- file.path("..", "data", "processed", "pubmed_clean.csv")
   
-  # 处理临床试验数据可能不存在的情况
   if (!file.exists(trials_path)) {
     message("警告：未找到临床试验数据，将使用空表")
     trials <- tibble()
@@ -19,7 +18,6 @@ load_data <- function(supplement = "维生素D3") {
     trials <- read_csv(trials_path) %>% filter(supplement == !!supplement)
   }
   
-  # 确保PubMed数据存在
   if (!file.exists(pubmed_path)) {
     stop("错误：PubMed数据文件不存在，请先运行数据清洗流程")
   }
@@ -28,23 +26,20 @@ load_data <- function(supplement = "维生素D3") {
   list(trials = trials, pubmed = pubmed)
 }
 
-# 2. 专业统计分析（修正top_n为slice_max）
+# 2. 专业统计分析
 perform_statistical_analysis <- function(data) {
-  # 临床试验阶段分布
   phase_dist <- if (nrow(data$trials) > 0) {
     data$trials %>% count(phase = `Phase`) %>% drop_na()
   } else {
-    tibble(phase = character(), n = integer())  # 返回空表但保留结构
+    tibble(phase = character(), n = integer())
   }
   
-  # 文献发表年份趋势
   pub_year_trend <- data$pubmed %>%
     mutate(year = str_extract(pub_date, "\\d{4}") %>% as.integer()) %>%
     filter(year >= 2010) %>%
     count(year) %>%
     complete(year = 2010:year(Sys.Date()), fill = list(n = 0))
   
-  # 疾病关联强度（修正top_n）
   condition_association <- if (nrow(data$trials) > 0) {
     data$trials %>%
       separate_rows(conditions, sep = ", ") %>%
@@ -52,7 +47,7 @@ perform_statistical_analysis <- function(data) {
       slice_max(n, n = 10) %>%
       mutate(association_strength = n / max(n))
   } else {
-    tibble(conditions = character(), n = integer(), association_strength = numeric())  # 保留结构
+    tibble(conditions = character(), n = integer(), association_strength = numeric())
   }
   
   list(
@@ -62,7 +57,7 @@ perform_statistical_analysis <- function(data) {
   )
 }
 
-# 3. 专业级知识图谱可视化（保持不变）
+# 3. 知识图谱可视化
 create_professional_graph <- function(data, stats, supplement) {
   nodes <- tibble(
     name = c(supplement,
@@ -91,7 +86,7 @@ create_professional_graph <- function(data, stats, supplement) {
   edges <- tibble(
     from = c(1, 1, 2, 2, 3, 3),
     to = c(2, 3, 4:(3+nrow(stats$condition_association)), 
-      (4+nrow(stats$condition_association)):nrow(nodes)),
+           (4+nrow(stats$condition_association)):nrow(nodes)),
     relation = c("has_trials", "has_studies", "treats", "treats", "published_in", "published_in")
   )
   
@@ -99,9 +94,9 @@ create_professional_graph <- function(data, stats, supplement) {
   
   ggraph(graph, layout = "fr") +
     geom_edge_link(aes(color = relation),
-                  arrow = arrow(length = unit(2, 'mm')),
-                  end_cap = circle(3, 'mm'),
-                  alpha = 0.7) +
+                   arrow = arrow(length = unit(2, 'mm')),
+                   end_cap = circle(3, 'mm'),
+                   alpha = 0.7) +
     geom_node_point(aes(size = size, color = type), alpha = 0.9) +
     geom_node_text(aes(label = name), repel = TRUE, size = 3.5, 
                    bg.color = "white", bg.r = 0.1) +
@@ -124,19 +119,22 @@ create_professional_graph <- function(data, stats, supplement) {
     )
 }
 
-# 4. 生成PDF报告（修正输出路径）
-generate_professional_report <- function(supplement = "维生素D3") {
+# 4. 生成报告（支持 PDF + HTML，自定义输出文件名）
+generate_professional_report <- function(supplement = "维生素D3",
+                                         output_pdf = NULL,
+                                         output_html = NULL) {
   data <- load_data(supplement)
   stats <- perform_statistical_analysis(data)
   
   rmd_content <- paste0(
-    "---",
-    "title: '", supplement, "知识图谱专业分析报告'",
-    "author: '生物统计知识图谱项目'",
-    "date: '", Sys.Date(), "'",
-    "output: pdf_document",
-    "---",
-    "\n\n",
+    "---\n",
+    "title: '", supplement, "知识图谱专业分析报告'\n",
+    "author: '生物统计知识图谱项目'\n",
+    "date: '", Sys.Date(), "'\n",
+    "output:\n",
+    "  pdf_document: default\n",
+    "  html_document: default\n",
+    "---\n\n",
     "## 执行摘要\n",
     "本报告展示了", supplement, "的临床试验与研究文献的统计分析结果，",
     "包含知识图谱可视化、疾病关联强度及研究趋势分析。\n\n",
@@ -145,43 +143,42 @@ generate_professional_report <- function(supplement = "维生素D3") {
     "- **研究文献数量**: ", nrow(data$pubmed), "\n",
     "- **分析时间范围**: 2010-", format(Sys.Date(), "%Y"), "\n\n",
     "## 知识图谱可视化\n",
-    "```{r graph, echo=FALSE, fig.cap='", supplement, "知识图谱', fig.align='center', fig.height=8}",
-    "create_professional_graph(data, stats, '", supplement, "')",
+    "```{r graph, echo=FALSE, fig.cap='", supplement, "知识图谱', fig.align='center', fig.height=8}\n",
+    "create_professional_graph(data, stats, '", supplement, "')\n",
     "```\n\n",
     "## 关键统计分析\n",
     "### 临床试验阶段分布\n",
-    "```{r phase, echo=FALSE}",
-    "knitr::kable(stats$phase_dist, col.names = c('阶段', '数量'), format = 'pipe')",
+    "```{r phase, echo=FALSE}\n",
+    "knitr::kable(stats$phase_dist, col.names = c('阶段', '数量'), format = 'pipe')\n",
     "```\n\n",
     "### 文献发表趋势\n",
-    "```{r trend, echo=FALSE, fig.cap='文献发表年度趋势', fig.height=4}",
-    "ggplot(stats$pub_year_trend, aes(x = year, y = n)) +",
-    "  geom_line(color = '#377EB8', size = 1.2) +",
-    "  geom_point(color = '#E41A1C', size = 3) +",
-    "  labs(x = '年份', y = '文献数量') +",
-    "  theme_minimal() +",
-    "  theme(panel.grid.minor = element_blank())",
+    "```{r trend, echo=FALSE, fig.cap='文献发表年度趋势', fig.height=4}\n",
+    "ggplot(stats$pub_year_trend, aes(x = year, y = n)) +\n",
+    "  geom_line(color = '#377EB8', size = 1.2) +\n",
+    "  geom_point(color = '#E41A1C', size = 3) +\n",
+    "  labs(x = '年份', y = '文献数量') +\n",
+    "  theme_minimal() +\n",
+    "  theme(panel.grid.minor = element_blank())\n",
     "```\n\n",
     "### 疾病关联强度Top10\n",
-    "```{r conditions, echo=FALSE}",
-    "stats$condition_association %>%",
-    "  select(疾病 = conditions, 关联强度 = association_strength, 研究数量 = n) %>%",
-    "  knitr::kable(format = 'pipe', digits = 2)",
-    "```"
+    "```{r conditions, echo=FALSE}\n",
+    "stats$condition_association %>%\n",
+    "  select(疾病 = conditions, 关联强度 = association_strength, 研究数量 = n) %>%\n",
+    "  knitr::kable(format = 'pipe', digits = 2)\n",
+    "```\n"
   )
   
   writeLines(rmd_content, "professional_report.Rmd")
   
-  # 修正输出路径，确保文件生成在当前目录
-  output_file <- paste0(supplement, "_knowledge_graph.pdf")
-  render("professional_report.Rmd", output_file = output_file)
+  if (!is.null(output_pdf)) {
+    render("professional_report.Rmd", output_file = output_pdf, output_format = "pdf_document")
+    message("PDF报告已生成: ", output_pdf)
+  }
+  
+  if (!is.null(output_html)) {
+    render("professional_report.Rmd", output_file = output_html, output_format = "html_document")
+    message("HTML报告已生成: ", output_html)
+  }
   
   file.remove("professional_report.Rmd")
-  
-  message("专业报告已生成: ", output_file)
-}
-
-# 执行生成报告（仅在手动运行时触发，避免GitHub Actions中重复执行）
-if (interactive()) {
-  generate_professional_report()
 }
