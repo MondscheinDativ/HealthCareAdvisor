@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1  # 仅拉取最新提交加速
+          fetch-depth: 1
 
       - name: Validate data directories
         run: |
@@ -58,13 +58,11 @@ jobs:
             libcurl4-openssl-dev libssl-dev libxml2-dev \
             libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
             libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
-            libgsl-dev \
-            libpng-tools \
-            libsystemd-dev \
+            libgsl-dev libpng-tools libsystemd-dev \
             fonts-dejavu-core \
             texlive-latex-extra texlive-fonts-extra
 
-      - name: Install R packages（优化CI环境依赖）
+      - name: Install R packages
         run: |
           Rscript -e '
             if (!require(systemfonts, quietly = TRUE)) {
@@ -98,7 +96,7 @@ jobs:
       - name: Create processed directory
         run: mkdir -p knowledge_graph/data/processed
 
-      - name: 数据清洗 + 图谱构建（含 disjointSet 替代逻辑）
+      - name: 数据清洗 + 图谱构建
         run: |
           cd knowledge_graph/visualization
           Rscript -e "
@@ -141,19 +139,18 @@ jobs:
         with:
           r-version: ${{ env.R_VERSION }}
 
-      - name: Install 报告依赖（确保 tex 环境 + 中文支持）
+      - name: Install 报告依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             texlive-latex-base texlive-fonts-recommended \
             texlive-fonts-extra texlive-latex-extra \
-            texlive-science latexmk \
-            texlive-lang-chinese fonts-noto-cjk
+            texlive-science latexmk
 
       - name: 安装报告 R 包
         run: |
           Rscript -e '
-            pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext", 
+            pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext",
                       "knitr", "rmarkdown", "visNetwork", "data.table", "readr")
             installed <- installed.packages()
             to_install <- setdiff(pkgs, rownames(installed))
@@ -167,24 +164,18 @@ jobs:
             }
           '
 
-      - name: 生成报告（可视化 + PDF/HTML）
+      - name: 生成报告
         run: |
           cd knowledge_graph/visualization
           Rscript -e "
             source('graph_visualization.R')
+            visualize_core_graph(focus_supplement = '${{ matrix.supplement }}')
+            
             source('professional_report.R')
-            supplement <- '${{ matrix.supplement }}'
-            safe_name <- switch(supplement,
-              '维生素D3' = 'VitaminD3',
-              '维生素C'  = 'VitaminC',
-              '锌'       = 'Zinc',
-              supplement
-            )
-            visualize_core_graph(focus_supplement = supplement)
             generate_professional_report(
-              supplement = supplement,
-              output_pdf = paste0(safe_name, '_knowledge_graph.pdf'),
-              output_html = paste0(safe_name, '_knowledge_graph.html')
+              supplement = '${{ matrix.supplement }}',
+              output_pdf = '${{ matrix.supplement }}_knowledge_graph.pdf',
+              output_html = '${{ matrix.supplement }}_knowledge_graph.html'
             )
           "
 
@@ -193,12 +184,8 @@ jobs:
         with:
           name: ${{ matrix.supplement }}-reports
           path: |
-            knowledge_graph/visualization/VitaminD3_knowledge_graph.pdf
-            knowledge_graph/visualization/VitaminD3_knowledge_graph.html
-            knowledge_graph/visualization/VitaminC_knowledge_graph.pdf
-            knowledge_graph/visualization/VitaminC_knowledge_graph.html
-            knowledge_graph/visualization/Zinc_knowledge_graph.pdf
-            knowledge_graph/visualization/Zinc_knowledge_graph.html
+            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.pdf
+            knowledge_graph/visualization/${{ matrix.supplement }}_knowledge_graph.html
           retention-days: 7
 
   deploy:
@@ -223,4 +210,5 @@ jobs:
           publish_dir: ./artifacts
           destination_dir: reports
           keep_files: true
+
 
