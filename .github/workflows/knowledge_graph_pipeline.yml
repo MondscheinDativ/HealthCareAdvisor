@@ -54,20 +54,25 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
+          # 先安装核心图形库依赖，确保png.h等头文件可用
           sudo apt-get install -y --no-install-recommends \
-            libcurl4-openssl-dev libssl-dev libxml2-dev \
+            libpng-dev libjpeg-dev libtiff5-dev libfreetype6-dev \
             libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
-            libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
-            libgsl-dev libpng-tools libsystemd-dev \
-            fonts-dejavu-core \
+            libcurl4-openssl-dev libssl-dev libxml2-dev \
+            libgsl-dev libsystemd-dev fonts-dejavu-core \
             texlive-latex-extra texlive-fonts-extra
 
       - name: Install R packages
         run: |
+          # 先安装依赖关系简单的基础包
           Rscript -e '
-            if (!require(systemfonts, quietly = TRUE)) {
-              install.packages("systemfonts", repos = "https://cloud.r-project.org", dependencies = TRUE)
-            }
+            install.packages(c("png", "jpeg", "sysfonts", "systemfonts"), 
+                            repos = "https://cloud.r-project.org", 
+                            dependencies = TRUE, Ncpus = 4)
+          '
+          
+          # 再安装其他包
+          Rscript -e '
             is_ci <- Sys.getenv("GITHUB_ACTIONS") == "true"
             pkgs_basic <- c("tidyverse", "future", "furrr", "digest", "remotes", "devtools")
             pkgs_vis <- c("ggraph", "igraph", "ggtext", "knitr", "rmarkdown", "visNetwork", "data.table", "ggforce")
@@ -143,6 +148,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            libpng-dev libjpeg-dev \
             texlive-latex-base texlive-fonts-recommended \
             texlive-fonts-extra texlive-latex-extra \
             texlive-science latexmk
@@ -150,6 +156,11 @@ jobs:
       - name: 安装报告 R 包
         run: |
           Rscript -e '
+            # 确保图形相关包优先安装
+            install.packages(c("png", "jpeg", "systemfonts"), 
+                            repos = "https://cloud.r-project.org", 
+                            dependencies = TRUE, Ncpus = 4)
+            
             pkgs <- c("tidyverse", "ggraph", "igraph", "ggtext",
                       "knitr", "rmarkdown", "visNetwork", "data.table", "readr")
             installed <- installed.packages()
@@ -210,5 +221,3 @@ jobs:
           publish_dir: ./artifacts
           destination_dir: reports
           keep_files: true
-
-
